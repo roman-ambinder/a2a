@@ -1,6 +1,11 @@
 # A2A.Extensions.AI
 
-`Microsoft.Extensions.AI` (M.E.AI) support for A2A. NuGet ID: `RomanAmbinder.A2A.Extensions.AI`.
+`Microsoft.Extensions.AI` (M.E.AI) support for A2A. NuGet ID: `RomanAmbinder.A2A.Extensions.AI`. Use it when your agent
+is backed by an LLM through `IChatClient`, or when an LLM app should call A2A agents.
+
+```bash
+dotnet add package RomanAmbinder.A2A.Extensions.AI
+```
 
 It does three things:
 
@@ -25,15 +30,18 @@ The reply streams to the caller as chunks of one artifact named `response`. Pass
 
 Options (`ChatClientAgentOptions`):
 
-| Option                 | Default    | Meaning                                                       |
-|------------------------|------------|---------------------------------------------------------------|
-| `Instructions`         | none       | First system message of every run                             |
-| `ChatOptions`          | none       | Cloned for each run. `ConversationId` is always cleared       |
-| `ArtifactName`         | `response` | Name of the reply artifact                                    |
-| `MaxHistoryMessages`   | 100        | Newest history messages sent to the model (at least 1)        |
-| `StreamChunkSize`      | 64         | Text characters collected before a chunk is sent (at least 1) |
-| `AllowUrlParts`        | false      | See Security                                                  |
-| `KeepConversationOpen` | false      | End each turn in `INPUT_REQUIRED` instead of `COMPLETED`      |
+| Option                  | Default    | Meaning                                                        |
+|-------------------------|------------|----------------------------------------------------------------|
+| `Instructions`          | none       | First system message of every run                              |
+| `ChatOptions`           | none       | Cloned for each run. `ConversationId` is always cleared        |
+| `ArtifactName`          | `response` | Name of the reply artifact                                     |
+| `MaxHistoryMessages`    | 100        | Newest history messages sent to the model (at least 1)         |
+| `StreamChunkSize`       | 64         | Text characters collected before a chunk is sent (at least 1)  |
+| `AllowUrlParts`         | false      | See Security                                                   |
+| `KeepConversationOpen`  | false      | End each turn in `INPUT_REQUIRED` instead of `COMPLETED`       |
+| `UseContextMemory`      | false      | Also give the model the earlier tasks of the same context      |
+| `ContextMemoryMaxTasks` | 20         | With `UseContextMemory`: earlier tasks read (at least 1)       |
+| `ContextMemoryMaxBytes` | 262144     | With `UseContextMemory`: size limit of earlier messages (JSON) |
 
 Tools work through your own pipeline: use `UseFunctionInvocation` or `ChatOptions.Tools`. Reasoning, usage and tool
 details are never sent to the caller.
@@ -43,7 +51,9 @@ A model error, a content filter stop, or a tool call that nothing ran fails the 
 
 ### History limit and `KeepConversationOpen`
 
-History is per task. A new task in the same `contextId` does not see earlier tasks. The model gets at most the newest
+History is per task by default. A new task in the same `contextId` does not see earlier tasks unless
+`UseContextMemory = true`; then the model also gets the earlier tasks of the context (and its summary, when there is
+one), and a completed task stores its reply as its status message too, so it counts twice toward the task size limit. The model gets at most the newest
 `MaxHistoryMessages` messages of the task (100 by default). If the trim would leave an agent reply first, the prompt
 starts at the next user message. Callers who read the task back get at most `A2ALimits.MaxHistoryLengthReturned`
 messages (also 100 by default).
@@ -146,3 +156,5 @@ Content from remote agents and from callers is untrusted.
     - Check every remote artifact with `OnArtifactReceived` (`OnMessageReceived` only sees messages, and agents mostly
       answer in artifacts). Throw to abort.
     - Require human approval before a tool with side effects runs on the strength of remote content.
+
+See the [Extensions.AI guide](https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/extensions-ai.md) for more.

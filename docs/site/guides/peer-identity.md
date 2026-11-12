@@ -6,7 +6,7 @@ A client that talks to many agents needs to know who each one is. This guide is 
 
 The `name` in an Agent Card is display text. Any agent can set it to anything. A host that routes by name can be fooled by a second agent with the same name, or one that only looks the same (`Paypal` with a Cyrillic `а`, or `Paypa1`).
 
-The SDK identifies a peer by where its card came from and which key signed it. The name is never part of that.
+The SDK identifies a peer by where its card came from (its origin: scheme, host and port) and which key signed it. The name is never part of that.
 
 ## PeerIdentity
 

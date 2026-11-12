@@ -1,6 +1,6 @@
 # Proactive continuation
 
-Some tasks finish later, with no client request to trigger the work. A report is ready after an hour. A payment provider calls your webhook. A timer fires. Proactive continuation lets your host run the agent on an existing task in these cases.
+Some tasks finish later, with no client request to trigger the work. A report is ready after an hour. A payment provider calls your webhook. A timer fires. Proactive continuation lets your host run the agent on an existing task in these cases. This guide shows how to implement it, how to start it, and what the host must secure.
 
 The events of a continuation take the normal path. They go to the event store and to stream subscribers. They also go to push when the task has push configs and the card declares push. The task does not need a push registration. See [Push notifications](push-notifications.md).
 
@@ -50,6 +50,7 @@ The `cancellationToken` only cancels the attempt to start. A started run does no
 | `InterruptedTimedOut` | The task waited for input longer than `InterruptedTimeout`. | Drop the key. The retention sweep cancels the task when retention is on. |
 | `AlreadyRunning` | An execution of the task runs, or another continuation is starting. | Try again later, or ignore it. |
 | `NotSupported` | The tenant has no agent, or its agent is not an `IContinuableAgentExecutor`. | Fix the registration. |
+| `AtCapacity` | The instance already runs as many agents as `A2ALimits.MaxConcurrentExecutions` or `MaxConcurrentExecutionsPerTenant` allow, and the start queue is full or the wait ended. | Try again later. |
 
 A refused request changes nothing: no run, no event. It is logged as event 240 (Debug).
 

@@ -15,7 +15,7 @@ An agent event past a cap fails the task and stops the agent. A follow-up messag
 
 ## When to use a store
 
-Use a store when an agent produces files that are larger than a few hundred KiB, or larger than `MaxEventBytes` (4 MB). Skip it for text, JSON and small images. With no store registered, nothing changes except the caps.
+Use a store when an agent produces files that are larger than a few hundred KiB, or larger than `MaxEventBytes` (4 MiB). Skip it for text, JSON and small images. With no store registered, nothing changes except the caps.
 
 | Without a store | With a store |
 |---|---|
@@ -34,7 +34,7 @@ Set them on <xref:A2A.Server.A2AServerOptions.ArtifactStorage>. They are members
 | `PublicBaseUrl` | none | Base of artifact links. Required when a store is registered. |
 | `PublicBaseUrlResolver` | none | A function from tenant to base URL, for tenants on different origins. It wins over `PublicBaseUrl`. |
 | `Delivery` | `Redirect` | `Redirect` or `Proxy`. See [Serving downloads](#serving-downloads). |
-| `DownloadUrlLifetime` | 5 minutes | How long a presigned URL works. |
+| `DownloadUrlLifetime` | 5 minutes | How long a presigned URL (a time-limited storage URL that carries its own signature) works. |
 | `OrphanGracePeriod` | 1 hour | How old an unreferenced object must be before the sweep deletes it. Must be greater than zero. |
 | `OrphanSweepInterval` | 6 hours | How often one instance runs the orphan step. Must be greater than zero. |
 
@@ -44,9 +44,9 @@ A store is a class that derives from <xref:A2A.Server.Storage.ArtifactObjectStor
 
 | Package | Backend |
 |---|---|
-| `A2A.Server` | `InMemoryArtifactObjectStore`: tests and development. Objects are lost on restart. |
-| `A2A.Server.Storage.S3` | `S3ArtifactObjectStore`: Amazon S3 and S3-compatible services such as MinIO. Register with `AddA2AS3ArtifactStore`. |
-| `A2A.Server.Storage.AzureBlob` | `AzureBlobArtifactObjectStore`: Azure Blob Storage block blobs. Register with `AddA2AAzureBlobArtifactStore`. |
+| `RomanAmbinder.A2A.Server` | `InMemoryArtifactObjectStore`: tests and development. Objects are lost on restart. |
+| `RomanAmbinder.A2A.Server.Storage.S3` | `S3ArtifactObjectStore`: Amazon S3 and S3-compatible services such as MinIO. Register with `AddA2AS3ArtifactStore`. |
+| `RomanAmbinder.A2A.Server.Storage.AzureBlob` | `AzureBlobArtifactObjectStore`: Azure Blob Storage block blobs. Register with `AddA2AAzureBlobArtifactStore`. |
 
 Both cloud providers use a `KeyPrefix` option. A bucket or container plus prefix belongs to exactly one task store: a prefix is normalized to end with `/`, so `prod` and `prod2` do not see each other, but two task stores must not share one prefix, or the sweep deletes the other store's objects.
 
@@ -154,12 +154,12 @@ Every response has `X-Content-Type-Options: nosniff` and `Cache-Control: private
 An object lives and dies with its task. There are no separate retention periods.
 
 - `A2ATaskAdmin.DeleteTaskAsync` deletes the task row first, then every object under the task. Objects first would risk a task that points at nothing. A failed delete is logged (event 236) and left to the sweep.
-- The [retention sweep](retention.md#what-a-sweep-does) has a last step for orphan objects.
-- It lists objects older than `OrphanGracePeriod`. It deletes those whose task is gone or no longer refers to them.
-- It reads each task without its owner, so a live task of anyone keeps its objects.
-- Any doubt keeps the object: a task it cannot read, a key that is not the SDK's own.
-- At most `BatchSize` objects go per sweep.
-- Listing a bucket is slow and costs money, so one instance runs this step at most once per `OrphanSweepInterval` (6 hours by default), not on every sweep. A run that stops at `BatchSize` does not count: the next sweep continues, so a backlog drains.
+- The [retention sweep](retention.md#what-a-sweep-does) has a step for orphan objects:
+  - It lists objects older than `OrphanGracePeriod`. It deletes those whose task is gone or no longer refers to them.
+  - It reads each task without its owner, so a live task of anyone keeps its objects.
+  - Any doubt keeps the object: a task it cannot read, a key that is not the SDK's own.
+  - At most `BatchSize` objects go per sweep.
+  - Listing a bucket is slow and costs money, so one instance runs this step at most once per `OrphanSweepInterval` (6 hours by default), not on every sweep. A run that stops at `BatchSize` does not count: the next sweep continues, so a backlog drains.
 
 The sweep runs only with `AddA2ARetention`. Without it, orphans stay. Keep `OrphanGracePeriod` longer than your slowest upload plus commit: a younger object may belong to a task that is not committed yet.
 

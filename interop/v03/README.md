@@ -25,3 +25,4 @@ interop/v03/run.sh        # PYTHON=... PYTHON10=... to use other interpreters
 ```
 
 Ports 5400 (Python) and 5500 (.NET); override with `PY_PORT` and `NET_PORT`. CI runs this in the `interop-v03` job.
+See the [v0.3 compatibility guide](https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/v03-compatibility.md).

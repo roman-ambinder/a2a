@@ -11,7 +11,8 @@ Both agents implement the same scenarios, picked by the first word of the messag
 `hello` (direct reply, no task), `task` (working → artifact → appended chunk → completed),
 `input` (input-required, then completes on the next message), `slow` (runs until canceled).
 
-Each agent serves HTTP on `<port>` and cleartext gRPC (HTTP/2) on `<port+1>`.
+Each agent serves HTTP on `<port>` and cleartext gRPC (HTTP/2) on `<port+1>`. `run.sh` starts the Python agent on port
+5200 and the .NET agent on 5300 (override with `PY_PORT` and `NET_PORT`), all on `127.0.0.1`.
 
 Each client checks: direct reply, blocking send, streaming send, streaming direct reply, multi-turn,
 get task with `historyLength`, list tasks, unknown task → TaskNotFound, and return-immediately + subscribe + cancel.
@@ -21,7 +22,9 @@ get task with `historyLength`, list tasks, unknown task → TaskNotFound, and re
 ```bash
 python3 -m venv interop/python/.venv
 interop/python/.venv/bin/pip install -r interop/python/requirements.txt
-interop/run.sh
+interop/run.sh            # PYTHON=... to use another interpreter
 ```
 
-CI runs this on every push and PR (`interop` job).
+The exit code is the number of failed client runs. CI runs this on every pull request and every push to `main`
+(`interop` job). For the v0.3 compat layer, see [v03/](v03/README.md). See also the
+[interop and conformance guide](https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/interop-and-conformance.md).

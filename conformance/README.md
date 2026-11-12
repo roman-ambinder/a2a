@@ -1,6 +1,7 @@
 # Conformance
 
-Runs the official A2A conformance suites against this SDK, on JSON-RPC, HTTP+JSON and gRPC.
+Runs the official A2A conformance suites against this SDK, on JSON-RPC, HTTP+JSON and gRPC. See also the
+[interop and conformance guide](https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/interop-and-conformance.md).
 
 | Suite | Source | Pinned commit |
 |---|---|---|
@@ -20,10 +21,13 @@ conformance/run.sh
 ```
 
 ```bash
-SUITES=acts conformance/run.sh
+SUITES=acts conformance/run.sh   # or SUITES=tck: one suite only
 ```
 
-The script clones the suites at the pinned commits into a cache folder outside this repo and runs them from there. It runs downloaded code, so treat it that way. Reports go to `conformance/results/`.
+The script clones the suites at the pinned commits into a cache folder outside this repo (`CONFORMANCE_CACHE`, default
+`~/.cache/a2a-conformance`) and runs them from there. It runs downloaded code, so treat it that way. Reports go to `conformance/results/` (`CONFORMANCE_OUT`). The agent listens on port 9999; ACTS also starts instances
+on 9100 (reduced capabilities) and 9200 (auth). Exit code: 0 when every failure is expected, 1 otherwise, 2 on setup
+errors.
 
 CI runs this in the `conformance` job. The job fails on any failure that is not in [expected-failures.txt](expected-failures.txt). `check.py` also lists entries that now pass, so they can be removed.
 

@@ -9,10 +9,11 @@ var options = new A2AClientOptions().UseGrpc();
 var client = await A2AClientFactory.CreateAsync(agentUrl, httpClient, options);
 ```
 
-Or require gRPC:
+Or require gRPC (fails when the card has no gRPC interface):
 
 ```csharp
-var client = A2AGrpcClientFactory.Create(agentCard);
+var client = await A2AGrpcClientFactory.CreateAsync(agentUrl, httpClient);  // fetches the card
+var client2 = A2AGrpcClientFactory.Create(agentCard);                        // card already in hand
 ```
 
 Per-call `A2ARequestOptions` headers, extensions, idempotency key, timeout (as the per-attempt gRPC deadline) and
@@ -21,4 +22,5 @@ it fails with `NotSupportedException`. Stream resume is not supported on gRPC.
 
 Part of the [A2A .NET SDK](https://github.com/roman-ambinder/a2a),
 implementing [A2A protocol v1.0](https://a2a-protocol.org/latest/specification/). Targets .NET 10.
-See the [repository README](https://github.com/roman-ambinder/a2a#readme) for full docs.
+See the [bindings guide](https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/bindings.md) and the
+[repository README](https://github.com/roman-ambinder/a2a#readme) for full docs.

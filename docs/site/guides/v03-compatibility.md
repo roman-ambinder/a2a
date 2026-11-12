@@ -54,7 +54,7 @@ The route names start with `A2A `, so the fail-closed startup check from [authen
 
 Every v0.3 call goes through the same request handler as a v1.0 call. It gets the same call context, so ownership, tenancy, filters, body size and JSON depth limits are the same code. The tenant comes only from the route. A v0.3 body has no tenant field.
 
-A rate limiter rejection on a v0.3 route uses the v1.0 error shape, because the limiter picks its format by endpoint name.
+A rate limiter rejection on a v0.3 HTTP+JSON route uses the v0.3 error shape (`{"code": ..., "message": ...}`, with `Retry-After`). v0.3 JSON-RPC shares the v1.0 JSON-RPC endpoint, so its rejection is a JSON-RPC error there.
 
 ### Version detection
 

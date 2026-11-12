@@ -1,7 +1,7 @@
 # RomanAmbinder.A2A.Server.Postgres
 
 PostgreSQL stores for an A2A (Agent2Agent) server: tasks, the per-task event log, push configs, the push outbox and
-idempotency keys. Plain Npgsql, no EF.
+idempotency keys. Plain Npgsql, no EF. Use it when tasks must survive a restart, or when you run more than one instance.
 With these stores (and a shared event bus such as `RomanAmbinder.A2A.Server.Redis`) the server can run as more than one
 instance.
 
@@ -54,7 +54,7 @@ when it is off.
 | Table                   | Key                                        | Holds                                                                                                                                                            |
 |-------------------------|--------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `a2a_tasks`             | `(tenant, task_id)`                        | Task JSON, owner, context, state, `status_ticks`, version. Index `(tenant, owner, status_ticks DESC, task_id)` serves ListTasks; a second one adds `context_id`. |
-| `a2a_contexts`          | `(tenant, context_id)`                     | The first owner of each context.                                                                                                                                 |
+| `a2a_contexts`          | `(tenant, context_id)`                     | The first owner of each context, and its conversation summary (`summary`, written by the agent).                                                                 |
 | `a2a_event_logs`        | `(tenant, owner, task_id)`                 | Last sequence, and when a terminal task's log expires (`purge_ticks`).                                                                                           |
 | `a2a_events`            | `(tenant, owner, task_id, seq)`            | The retained events (last `Streaming.ReplayBufferSize`), each as the bytes the server encoded once, returned unchanged on replay.                                |
 | `a2a_push_configs`      | `(tenant, owner, task_id, config_id)`      | Push config JSON with protected secrets.                                                                                                                         |
@@ -78,7 +78,6 @@ like the in-memory stores.
 - New tables `a2a_execution_leases`, `a2a_sweep_leases` and `a2a_cancel_requests`, created at startup like the others
   (apply `PostgresSchema.ScriptFor("<schema>")` yourself if `CreateSchemaOnStartup = false`). `AddPostgresStores` now
   registers the Postgres execution coordinator by default; set `RegisterCoordinator = false` to keep the in-memory one.
-
 - New tables `a2a_push_outbox` and `a2a_push_dead_letters` (plus indexes). They are created at startup; apply
   `PostgresSchema.ScriptFor("<schema>")` yourself if `CreateSchemaOnStartup = false`.
 - `IdempotencyClaimTimeout` default: 1 hour -> 2 minutes (see Behavior).
@@ -93,9 +92,8 @@ like the in-memory stores.
 ## Behavior
 
 Same contract as the in-memory stores (the same test suite runs against both): owner and tenant scoping, optimistic
-concurrency on versions,
-ListTasks newest first with keyset paging, per-task event sequences from 1, trimming to the replay buffer, terminal
-retention, and idempotency retention.
+concurrency on versions, ListTasks newest first with keyset paging, per-task event sequences from 1, trimming to the
+replay buffer, terminal retention, and idempotency retention.
 A task change, its event and its push deliveries are written in one transaction (`TaskStore.CommitAsync`), so the event
 log follows the order of task versions, also across instances, and no event loses its webhooks.
 
@@ -130,4 +128,5 @@ Differences, because the store is shared by several instances:
 
 Part of the [A2A .NET SDK](https://github.com/roman-ambinder/a2a),
 implementing [A2A protocol v1.0](https://a2a-protocol.org/latest/specification/). Targets .NET 10.
-See the [repository README](https://github.com/roman-ambinder/a2a#readme) for full docs.
+See the [durable stores guide](https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/durable-stores.md) and the
+[repository README](https://github.com/roman-ambinder/a2a#readme) for full docs.

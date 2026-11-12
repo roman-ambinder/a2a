@@ -1,6 +1,7 @@
 # RomanAmbinder.A2A.Templates
 
-`dotnet new` templates for the [A2A .NET SDK](https://roman-ambinder.github.io/a2a/).
+`dotnet new` templates for the [A2A .NET SDK](https://roman-ambinder.github.io/a2a/): the quickest way to start a new
+agent or client project.
 
 ```bash
 dotnet new install RomanAmbinder.A2A.Templates
@@ -16,3 +17,5 @@ the agents made without `--auth apikey` ask for a bearer token (`AddBearerAuthen
 refuse to start until you register the scheme, for example `AddJwtBearer()` from
 `Microsoft.AspNetCore.Authentication.JwtBearer`. With `--auth apikey`, an API key is required in every environment. The
 client template sends the key in the `A2A_API_KEY` environment variable.
+
+See the [getting started guide](https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/getting-started.md).

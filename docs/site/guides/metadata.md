@@ -1,6 +1,6 @@
 # Metadata keys
 
-A2A messages, tasks, artifacts and events carry a free-form `metadata` object. The spec does not reserve any key in it. This page lists the keys this SDK reads or writes, and what to do with keys of your own.
+A2A messages, tasks, artifacts and events carry a free-form `metadata` object. The spec does not reserve any key in it. This page lists the keys this SDK reads or writes, and what to do with keys of your own. Read it before you add metadata, so your keys do not clash with the SDK's.
 
 ## Keys the SDK uses
 
@@ -16,10 +16,12 @@ A2A messages, tasks, artifacts and events carry a free-form `metadata` object. T
 | `a2a.elicitation.answered` | Task | Server | The id of the status message whose form was answered. Constant `Elicitation.AnsweredKey`. | [Task safety](task-safety.md) |
 | `skillId` | Message | Client, through `SelectSkill` | The skill the caller asks for. A hint, not an authorization decision. Experimental (`A2AEXP001`). | [Skill selection](skill-selection.md) |
 | `actorChain` | Message, echoed on the task | Client and server | The chain of actors on whose behalf the call is made. Nobody verifies it: treat it as untrusted text. Experimental (`A2AEXP002`). | [Authentication and ownership](auth-and-ownership.md) |
+| `sha256`, `sizeBytes` | Part (a `url` part the server made from a large raw part, or an upload) | Server, with an `ArtifactObjectStore` registered | The hash of the stored object's bytes and its size. | [Artifact storage](artifact-storage.md) |
+| `a2a.followUp.pendingStart` | Task | Server | Marks a committed follow-up whose agent has not started yet, so a retry can start it. Internal. | [Task safety](task-safety.md) |
 | `a2a.usage` | Task | Server, from `ReportUsageAsync` | Usage so far: `{"tokens": n, "costUnits": x}`. | [Execution limits](execution-limits.md) |
 | `traceparent`, `tracestate` | Message | Client, with `A2AClientOptions.PropagateTraceInMetadata` | The W3C trace context of the send, for when a proxy drops the headers. The server reads it only when no `traceparent` header came, and the idempotency fingerprint ignores it. The key names are the W3C header names; the spec reserves no key for this. | [Observability](observability.md) |
 
-The server owns the keys it writes on tasks. An agent cannot set `a2a.approval.consumed`, `a2a.elicitation.answered`, `actorChain` or `a2a.usage` through event metadata, and the server removes an `a2a.artifact.sealed` that an agent sets on a chunk that is not the last one. How event metadata merges into the task (shallow, last write wins) is in [Spec decisions](spec-decisions.md).
+The server owns the keys it writes on tasks. An agent cannot set `a2a.approval.consumed`, `a2a.cancelRequested`, `a2a.elicitation.answered`, `a2a.followUp.pendingStart`, `actorChain` or `a2a.usage` through event metadata, and the server removes an `a2a.artifact.sealed` that an agent sets on a chunk that is not the last one. How event metadata merges into the task (shallow, last write wins) is in [Spec decisions](spec-decisions.md).
 
 ## Cost, progress, priority and batches
 
