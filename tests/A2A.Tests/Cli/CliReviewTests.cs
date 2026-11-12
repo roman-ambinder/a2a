@@ -159,10 +159,12 @@ public sealed class CliNetworkErrorTests
     [Fact]
     public void A_cause_already_in_the_message_is_not_repeated()
     {
-        var ex = new HttpRequestException("Connection refused (localhost:1)",
-            new System.Net.Sockets.SocketException((int)System.Net.Sockets.SocketError.ConnectionRefused));
+        // The socket error's text is the OS's ("Connection refused" on Linux, "No connection could be made ..." on
+        // Windows), so build the outer message from it, as HttpClient does.
+        var inner = new System.Net.Sockets.SocketException((int)System.Net.Sockets.SocketError.ConnectionRefused);
+        var ex = new HttpRequestException($"{inner.Message} (localhost:1)", inner);
         var (_, _, message) = CliApp.Classify(ex, CancellationToken.None);
-        Assert.Equal("Connection refused (localhost:1)", message);
+        Assert.Equal($"{inner.Message} (localhost:1)", message);
     }
 }
 
