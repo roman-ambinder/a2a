@@ -14,6 +14,9 @@ internal sealed class V03ProtocolAdapter : IA2AProtocolAdapter
 
     public Func<ReadOnlyMemory<byte>, byte[]>? CardBodyTransform { get; } = V03CardBody.Blend;
 
+    // v0.2.x clients use the v0.3 JSON-RPC methods (a subset of them) but read the card at /.well-known/agent.json.
+    public bool ServeLegacyCardPath => true;
+
     public RequestDelegate WrapJsonRpc(IServiceProvider services, RequestDelegate core)
     {
         RejectExtensionNameCollisions(services);

@@ -193,7 +193,8 @@ internal sealed class PushWebhookSender(
     PushNotificationOptions options,
     ILogger logger,
     TimeProvider? time = null,
-    ILogger? securityLogger = null)
+    ILogger? securityLogger = null,
+    Func<IPushPayloadEncoder?>? encoder = null)
 {
     /// <summary>A refused webhook is a security event. It never carries the URL.</summary>
     private void Refused(PushDelivery delivery)
@@ -221,16 +222,37 @@ internal sealed class PushWebhookSender(
                 return new PushSendResult(PushSendOutcome.Permanent, "URL not allowed: " + ex.Message, "UrlNotAllowed");
             }
 
-            // A2A 1.1 (§4.3.1 protocolVersion): a 1.1 config gets the event with its generation, which equals the delivery's
-            // sequence (the stored bytes are the 1.0 shape). Done before the signature, which covers the bytes sent.
-            var v11 = A2AProtocol.IsVersion11OrLater(config.ProtocolVersion);
-            if (v11 && delivery.Sequence > 0) body = EventEncoder.WithGeneration(body.ToArray(), delivery.Sequence);
+            // A config of another protocol version (v0.3 compat) gets the body its encoder writes. Done before the signature,
+            // which covers the bytes sent.
+            var contentType = A2AProtocol.MediaType;
+            string headerVersion;
+            if (config.ProtocolVersion is { Length: > 0 } configVersion && !A2AProtocol.IsVersion11OrLater(configVersion) &&
+                configVersion != A2AProtocol.Version)
+            {
+                var legacy = encoder?.Invoke();
+                if (legacy is null || legacy.ProtocolVersion != configVersion)
+                    return new PushSendResult(PushSendOutcome.Permanent,
+                        $"No webhook encoder for protocol version {configVersion}", "UnsupportedVersion");
+                if (await legacy.EncodeAsync(delivery, body, cancellationToken).ConfigureAwait(false) is not { } encoded)
+                    return new PushSendResult(PushSendOutcome.Permanent, "The task no longer exists", "TaskNotFound");
+                body = encoded;
+                contentType = legacy.ContentType;
+                headerVersion = legacy.ProtocolVersion;
+            }
+            else
+            {
+                // A2A 1.1 (§4.3.1 protocolVersion): a 1.1 config gets the event with its generation, which equals the
+                // delivery's sequence (the stored bytes are the 1.0 shape).
+                var v11 = A2AProtocol.IsVersion11OrLater(config.ProtocolVersion);
+                if (v11 && delivery.Sequence > 0) body = EventEncoder.WithGeneration(body.ToArray(), delivery.Sequence);
+                headerVersion = v11 ? A2AProtocol.Version11 : A2AProtocol.Version;
+            }
+
             using var request = new HttpRequestMessage(HttpMethod.Post, config.Url)
                 { Content = new ReadOnlyMemoryContent(body) };
-            request.Content.Headers.ContentType = new MediaTypeHeaderValue(A2AProtocol.MediaType);
-            // The body is an A2A StreamResponse of the config's version; say so, as on every other A2A request (a2a-js #647).
-            request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.Version,
-                v11 ? A2AProtocol.Version11 : A2AProtocol.Version);
+            request.Content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+            // The body is an A2A payload of the config's version; say so, as on every other A2A request (a2a-js #647).
+            request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.Version, headerVersion);
             // The webhook-signature scheme carries the signing secret, never an Authorization header: the bearer token (if any) applies.
             var signing =
                 config.Authentication is { } a && string.Equals(a.Scheme, WebhookSignature.Scheme,

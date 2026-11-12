@@ -18,6 +18,12 @@ public static class A2AProtocol
     /// <summary>Path where an agent publishes its Agent Card, relative to its origin.</summary>
     public const string WellKnownAgentCardPath = "/.well-known/agent-card.json";
 
+    /// <summary>
+    ///     Where A2A 0.1 to 0.2.x agents published their card (0.3 moved it to <see cref="WellKnownAgentCardPath" />). Served
+    ///     and read only by the v0.3 compat packages.
+    /// </summary>
+    public const string LegacyAgentCardPath = "/.well-known/agent.json";
+
     /// <summary>Media type of A2A payloads on the HTTP+JSON and JSON-RPC bindings.</summary>
     public const string MediaType = "application/a2a+json";
 

@@ -75,6 +75,16 @@ public sealed class A2AClientOptions
     public bool RequireExactProtocolVersion { get; set; }
 
     /// <summary>
+    ///     A2A 1.1 (§3.2.7, §3.5.2): on a stream from <see cref="A2AClient" />, a gap in the events' <c>generation</c> (a
+    ///     change the stream did not deliver) is reconciled: after the event, the client calls GetTask and yields the task as
+    ///     a <see cref="TaskEvent" />. Events whose generation is already reflected (a replay, or one covered by that
+    ///     snapshot) are skipped either way. Generation is not used at all when the server does not implement it (it sends 0,
+    ///     or two update events with one generation), and a 1.0 wire has none. Default true. Set false to get the events only,
+    ///     with no extra GetTask calls.
+    /// </summary>
+    public bool ReconcileGenerationGaps { get; set; } = true;
+
+    /// <summary>
     ///     When true, the client refuses to register a webhook URL that is not <c>https</c> (spec §13.2: clients SHOULD use
     ///     HTTPS endpoints for webhook URLs), in <c>CreateTaskPushNotificationConfig</c> and in the push config of a
     ///     <c>SendMessage</c>. A loopback URL (<c>localhost</c>, <c>127.0.0.1</c>, <c>[::1]</c>) is allowed for local
@@ -251,6 +261,7 @@ public sealed class A2AClientOptions
         {
             ProtocolVersion = ProtocolVersion,
             RequireExactProtocolVersion = RequireExactProtocolVersion,
+            ReconcileGenerationGaps = ReconcileGenerationGaps,
             RequireHttpsWebhooks = RequireHttpsWebhooks,
             Extensions = new List<string>(Extensions),
             Tenant = Tenant,

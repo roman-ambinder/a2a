@@ -31,6 +31,12 @@ internal static class V03Compat
         return int.TryParse(major, NumberStyles.None, CultureInfo.InvariantCulture, out var m) && m >= 1;
     }
 
+    /// <summary>True for a card <c>protocolVersion</c> of <c>0.2</c> or <c>0.2.x</c>.</summary>
+    public static bool IsV02Version(string? version)
+    {
+        return version is not null && (version == "0.2" || version.StartsWith("0.2.", StringComparison.Ordinal));
+    }
+
     /// <summary>True for a card <c>protocolVersion</c> of <c>0.3</c> or <c>0.3.x</c>.</summary>
     public static bool IsV03Version(string? version)
     {

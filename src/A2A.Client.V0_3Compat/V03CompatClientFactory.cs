@@ -27,8 +27,10 @@ public static class V03CompatClientFactory
     /// <summary>
     ///     Resolves the card at <paramref name="agentUrl" /> and creates a client for it. A v0.3 card (top-level
     ///     <c>protocolVersion</c> <c>0.3.x</c>, no <c>supportedInterfaces</c>) is converted to the v1.0 model first, and reads
-    ///     as
-    ///     unsigned. <paramref name="resolverOptions" /> is copied, never changed.
+    ///     as unsigned. A v0.2 card is converted the same way, with only its JSON-RPC interfaces. When the well-known card
+    ///     path answers 404, the A2A 0.1 to 0.2.x path <c>/.well-known/agent.json</c> is tried, unless
+    ///     <paramref name="agentUrl" /> names a <c>.json</c> document. <paramref name="resolverOptions" /> is copied, never
+    ///     changed.
     /// </summary>
     public static async Task<A2AClient> CreateAsync(Uri agentUrl, HttpClient httpClient,
         A2AClientOptions? options = null,
@@ -40,10 +42,31 @@ public static class V03CompatClientFactory
         var resolverCopy = resolverOptions?.Clone() ?? new A2ACardResolverOptions();
         resolverCopy.CardNormalizer = V03CardCodec.NormalizeForResolver;
         var resolver = new A2ACardResolver(httpClient, resolverCopy);
-        var card = await resolver.GetAgentCardAsync(agentUrl, cancellationToken).ConfigureAwait(false);
+        AgentCard card;
+        try
+        {
+            card = await resolver.GetAgentCardAsync(agentUrl, cancellationToken).ConfigureAwait(false);
+        }
+        catch (A2AException ex) when (ex.HttpStatus == 404 && LegacyCardUri(agentUrl) is { } legacy)
+        {
+            // An A2A 0.1 to 0.2.x agent publishes its card at /.well-known/agent.json (0.3 moved it to agent-card.json).
+            card = await resolver.GetAgentCardAsync(legacy, cancellationToken).ConfigureAwait(false);
+        }
+
         await EnsureEndpointsAllowedAsync(card, agentUrl, options ?? new A2AClientOptions(), cancellationToken)
             .ConfigureAwait(false);
         return Create(card, httpClient, options);
+    }
+
+    /// <summary>
+    ///     The legacy card URL of <paramref name="agentUrl" />, or null when the caller named a card document itself (a URL
+    ///     that ends in <c>.json</c>): then the caller's URL is the only one tried.
+    /// </summary>
+    private static Uri? LegacyCardUri(Uri agentUrl)
+    {
+        return agentUrl.AbsolutePath.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : new Uri(agentUrl, A2AProtocol.LegacyAgentCardPath);
     }
 
     /// <summary>

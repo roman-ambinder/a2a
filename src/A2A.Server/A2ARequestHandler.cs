@@ -1744,8 +1744,13 @@ public sealed partial class A2ARequestHandler : IA2ARequestHandler, IDisposable
     ///     <c>1.1</c>), else the version of the request that creates it. A 1.0 caller has no such field: null, which means
     ///     1.0.
     /// </summary>
-    private static string? PushVersion(string? requested, ServerCallContext call, string field)
+    private string? PushVersion(string? requested, ServerCallContext call, string field)
     {
+        // A config made by a v0.3 caller (the compat surface translated the call) gets v0.3 bodies, when the compat package
+        // is there to write them.
+        if (call.WireProtocolVersion == A2AProtocol.ImplicitVersion &&
+            _options.PushPayloadEncoder?.ProtocolVersion == A2AProtocol.ImplicitVersion)
+            return A2AProtocol.ImplicitVersion;
         if (!A2AProtocol.IsVersion11OrLater(call.ProtocolVersion)) return null;
         if (string.IsNullOrWhiteSpace(requested)) return A2AProtocol.Version11;
         var parts = requested.Trim().Split('.');

@@ -5,3 +5,5 @@ A2A.Client.TaskDeletionClientExtensions
 static A2A.Client.TaskDeletionClientExtensions.DeleteTaskAsync(this A2A.Client.IA2AClient! client, string! taskId, A2A.Client.A2ARequestOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 A2A.Client.A2AClientOptions.RequireExactProtocolVersion.get -> bool
 A2A.Client.A2AClientOptions.RequireExactProtocolVersion.set -> void
+A2A.Client.A2AClientOptions.ReconcileGenerationGaps.get -> bool
+A2A.Client.A2AClientOptions.ReconcileGenerationGaps.set -> void

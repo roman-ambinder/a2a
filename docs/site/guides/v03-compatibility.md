@@ -1,6 +1,6 @@
 # v0.3 compatibility
 
-This SDK speaks A2A v1.0. Two opt-in packages add protocol v0.3: one lets your server answer v0.3 clients, the other lets your client call v0.3-only agents. Read this guide if you must work with agents or clients built on the older protocol. If you only talk to v1.0 peers, skip it.
+This SDK speaks A2A v1.0. Two opt-in packages add protocol v0.3: one lets your server answer v0.3 clients, the other lets your client call v0.3-only agents. Both also cover v0.2.x peers over JSON-RPC (see [v0.2.x peers](#v02x-peers)). Read this guide if you must work with agents or clients built on the older protocol. If you only talk to v1.0 peers, skip it.
 
 Nothing changes unless you opt in. A v1.0 method sent without the `A2A-Version` header is still refused.
 
@@ -29,7 +29,7 @@ Call `EnableV03Compat` inside `MapA2A`:
 
 - **v0.3 JSON-RPC methods on the same URL.** `message/send`, `message/stream`, `tasks/get`, `tasks/cancel`, `tasks/resubscribe` and `agent/getAuthenticatedExtendedCard`. v1.0 methods are untouched.
 - **v0.3 HTTP+JSON routes under `{pattern}/v1/...`.** Each route also has a `{pattern}/{tenant}/v1/...` variant, unless the pattern already has a tenant segment.
-- **A blended Agent Card** at `/.well-known/agent-card.json`. See below.
+- **A blended Agent Card** at `/.well-known/agent-card.json`, and at `/.well-known/agent.json`, the path of v0.1 to v0.2.x. See below.
 
 | v0.3 JSON-RPC | v0.3 HTTP+JSON | Runs |
 |---|---|---|
@@ -64,8 +64,10 @@ The shape of the request picks the surface. The `A2A-Version` header can only ve
 |---|---|
 | JSON-RPC method from the v0.3 table | v0.3 surface |
 | HTTP path under `{pattern}/v1/...` | v0.3 surface |
-| Either of the above with `A2A-Version` major 1 or higher (header, or query parameter on HTTP+JSON) | `VersionNotSupported` |
+| Either of the above with any `A2A-Version` other than `0.3` or `0.3.x` (header, or query parameter): `1.0`, `0.2`, or a value that does not parse | `VersionNotSupported` |
 | Anything else | v1.0 core, unchanged |
+
+No version means 0.3 (spec v1.0.1 §3.6.2). A version the surface does not serve is refused, not served with v0.3 semantics: "If the version is not supported by the interface, agents MUST return a `VersionNotSupportedError`." A JSON-RPC request without `"jsonrpc": "2.0"` is `InvalidRequest` (`-32600`), on the v0.3 surface and on the v1.0 endpoint.
 
 JSON-RPC shares one URL with v1.0. The wrapper reads the body once, with the normal size limit, and looks at `method`. A v0.3 method is handled. Anything else, and malformed JSON, goes to the v1.0 endpoint, so its answers do not change. A failure to read the body is handed to the v1.0 endpoint too.
 
@@ -86,9 +88,11 @@ v0.3 has no version negotiation for the card, and v0.3 clients send no header. S
 
 `GRPC` interfaces are never listed for v0.3. If the card has no `JSONRPC` or `HTTP+JSON` interface, nothing is added and a warning is logged once.
 
-`capabilities.pushNotifications` is shared by both versions. The blended card keeps the v1.0 value. So a host with v1.0 push still says `true`, and a v0.3 client that tries push gets an error (see below).
+`capabilities.pushNotifications` is shared by both versions. The blended card keeps the v1.0 value, and v0.3 push is served (see [Push notifications](#push-notifications)), so the value is true for both.
 
-The extended card (`/v1/card` and `agent/getAuthenticatedExtendedCard`) is a pure v0.3 card, not blended. It says `pushNotifications: false`. It has no `signatures`: a signature of the v1.0 extended card covers the v1.0 content, not the v0.3 document served, so it could never verify. The drop is counted with the `field` tag `card.signatures`. `/v1/card` returns the JSON-RPC dialect of the card, as v0.3 servers do. If your extended card lists no interfaces, they are taken from the public card.
+The legacy path `/.well-known/agent.json` (and `/{tenant}/.well-known/agent.json`) serves the same blended card, with the same ETag. Without `EnableV03Compat` it answers 404.
+
+The extended card (`/v1/card` and `agent/getAuthenticatedExtendedCard`) is a pure v0.3 card, not blended. Its `pushNotifications` is the v1.0 value. It has no `signatures`: a signature of the v1.0 extended card covers the v1.0 content, not the v0.3 document served, so it could never verify. The drop is counted with the `field` tag `card.signatures`. `/v1/card` returns the JSON-RPC dialect of the card, as v0.3 servers do. If your extended card lists no interfaces, they are taken from the public card.
 
 ### Card signing
 
@@ -96,12 +100,32 @@ The signature of a v1.0 card still verifies. The signing step ignores members ou
 
 But the added v0.3 members are not covered by the signature. A v0.3 client cannot verify the card anyway (see the client side below). See [Agent Card signing](agent-card-signing.md).
 
+### Push notifications
+
+The four push config methods and their HTTP+JSON routes are served, and so is a `pushNotificationConfig` in a send. They run the same core code as v1.0 push, so the URL rules (SSRF guard), ownership, the durable outbox and retries are the same.
+
+| v0.3 JSON-RPC | v0.3 HTTP+JSON | Answer |
+|---|---|---|
+| `tasks/pushNotificationConfig/set` | `POST /v1/tasks/{id}/pushNotificationConfigs` (`?configId=` optional) | the config |
+| `tasks/pushNotificationConfig/get` | `GET /v1/tasks/{id}/pushNotificationConfigs/{configId}` | the config. Without `pushNotificationConfigId`, the task's first config, as the v0.3 Python SDK answers |
+| `tasks/pushNotificationConfig/list` | `GET /v1/tasks/{id}/pushNotificationConfigs` | JSON-RPC: every config, at most 1000 (v0.3 has no paging there). HTTP+JSON: `{"configs": [...], "nextPageToken": ...}` |
+| `tasks/pushNotificationConfig/delete` | `DELETE /v1/tasks/{id}/pushNotificationConfigs/{configId}` | `null` (JSON-RPC, as the schema says) or `{}`. `pushNotificationConfigId` is required |
+
+A config created over v0.3 is stored with `protocolVersion` `0.3`. Its webhook body is not the v1.0 event. It is the task as it is when the delivery is made, as a v0.3 JSON-RPC `Task` (`"kind": "task"`), with `Content-Type: application/json` and `A2A-Version: 0.3`. The v0.3 docs leave the body open ("The A2A protocol itself does **not** strictly define the HTTP body payload of the push notification"); this is what the official Python SDK 0.3 sends. The history is capped as on GetTask. Since each delivery carries the current task, a retried or late delivery carries a newer state, never an older one. `X-A2A-Notification-Token`, the bearer token and webhook signatures work as for v1.0. A config created by a v1.0 caller on the same task still gets v1.0 bodies.
+
+A stored `0.3` config whose server no longer has the compat package (the encoder is registered by `EnableV03Compat`) is dead-lettered, never sent a v1.0 body.
+
 ### What the server does not support
 
-- **Push notifications.** The four `tasks/pushNotificationConfig/*` methods and routes answer `PushNotificationNotSupported` (`-32003`). So does a send with a `pushNotificationConfig`. The push pipeline sends v1.0 bodies, and a v0.3 webhook expects a different shape. Refusing is safer than sending the wrong shape.
 - **`tasks/list`.** Not in v0.3.
 - **gRPC.** Not served and not advertised.
-- **Anything older than v0.3.**
+- **v0.1.** Its methods (`tasks/send`, `tasks/sendSubscribe`) do not exist here.
+
+### v0.2.x peers
+
+v0.3.0 only adds to v0.2.6 on the wire: its JSON-RPC methods are a superset of v0.2.x's, and the v0.2.6 to v0.3.0 schema changes are new optional members. So a v0.2.x client is served by the v0.3 surface: it reads the card at `/.well-known/agent.json` and sends no `A2A-Version` header. The v0.2.x extended card endpoint (`GET {url}/../agent/authenticatedExtendedCard`, JSON-RPC `agent/authenticatedExtendedCard`) is not served; v0.3's `agent/getAuthenticatedExtendedCard` is.
+
+On the client, `V03CompatClientFactory` reads a card with `protocolVersion` `0.2` or `0.2.x`, and a card with no `protocolVersion` but a top-level `url` (before v0.2.5 there was none). It keeps only the JSON-RPC interfaces (a missing `preferredTransport` is JSON-RPC, as v0.2.x says), because the v0.2 HTTP+JSON wire was not defined the way v0.3 defines it; each dropped one counts `v0.2.interface`. When `/.well-known/agent-card.json` answers 404, `CreateAsync` tries `/.well-known/agent.json`, unless the URL you passed names a `.json` document. A v0.2.x agent gets the v0.3 methods; calling the extended card on it fails, since v0.2.x has another method for it.
 
 ### Errors
 
@@ -132,7 +156,7 @@ If you already have the card, use `Create`. It needs no network call:
 ### How it picks an interface
 
 1. The card is fetched by the normal card resolver. HTTPS rules, key pinning and text limits apply.
-2. A card with a top-level `protocolVersion` of `0.3` or `0.3.x` and no `supportedInterfaces` is converted to the v1.0 model. Its interfaces are marked `0.3`. Other `0.x` versions are refused.
+2. A card with a top-level `protocolVersion` of `0.3` or `0.3.x` and no `supportedInterfaces` is converted to the v1.0 model. Its interfaces are marked `0.3`. A v0.2.x card is converted the same way, with its JSON-RPC interfaces only (see [v0.2.x peers](#v02x-peers)). Other `0.x` versions are refused. When the card is not found (404), the v0.2.x path `/.well-known/agent.json` is tried.
 3. If the card offers a v1.x interface the client can use, the normal v1.0 path is taken. **A card that offers v1.0 is never downgraded.** This holds for the blended card of this SDK too.
 4. Otherwise the first v0.3 `JSONRPC` or `HTTP+JSON` interface in card order is used. The binding must be in `A2AClientOptions.SupportedBindings`.
 
@@ -151,7 +175,7 @@ So a client that requires card signatures refuses a v0.3-only agent. `RequireSig
 ### What the client does not support
 
 - **`ListTasks`.** It throws `UnsupportedOperation` on both bindings.
-- **Receiving v0.3 push webhooks.** You can create, get, list and delete push configs on a v0.3 agent. `authentication.schemes[0]` maps to `Scheme`. But `PushNotificationReceiver` reads v1.0 bodies only.
+- **Receiving v0.3 push webhooks.** You can create, get, list and delete push configs on a v0.3 agent. `authentication.schemes[0]` maps to `Scheme`. But `PushNotificationReceiver` reads v1.0 bodies only; a v0.3 agent sends the task (see [Push notifications](#push-notifications)).
 - **gRPC.** v0.3 gRPC interfaces are never selected.
 - **A v0.3 card that has a security scheme of an unknown type.** The card is refused. Dropping the scheme would make it read as open access.
 
@@ -170,6 +194,8 @@ v0.3 cannot carry everything v1.0 can. Each drop is counted (see [Metrics](#metr
 | `referenceTaskIds` on a message | v1.0 to HTTP+JSON | Dropped. JSON-RPC keeps it | `message.referenceTaskIds` |
 | `Tenant` on a request | v1.0 to v0.3 | Not sent. Only the URL carries the tenant | `request.tenant` |
 | `metadata` of `tasks/get` and `tasks/resubscribe` params | v0.3 to v1.0 | Dropped | `tasks/get.metadata`, `tasks/resubscribe.metadata` |
+| `metadata` of push config get, list and delete params | v0.3 to v1.0 | Dropped | `tasks/pushNotificationConfig.metadata` |
+| Interfaces other than JSON-RPC on a v0.2.x card | v0.2 to v1.0 card | Dropped | `v0.2.interface` |
 | `authentication.schemes` after the first | v0.3 to v1.0 | Dropped | `pushNotificationConfig.authentication.schemes` |
 | OAuth `deviceCode` flow | v1.0 to v0.3 card | Dropped | `oauth.deviceCode` |
 | OAuth `pkceRequired` | v1.0 to v0.3 card | Dropped | `oauth.pkceRequired` |
@@ -218,11 +244,12 @@ The server logs through its logger factory. A client logs only after `V03CompatC
 
 - **`EnableV03Compat` or `V03CompatClientFactory` throws "needs the same version of ...".** The compat packages use core internals. Update all `RomanAmbinder.A2A.*` packages to one version. The check runs at startup on the server, and on every `Create` and `CreateAsync` on the client.
 - **`MapA2A` throws and names an extension operation.** Its name is a v0.3 method name or `tasks/list`. Rename it, or do not enable compat.
-- **A v0.3 client gets `VersionNotSupported`.** It sent `A2A-Version` 1.0 or later to a v0.3 method or route.
-- **A v0.3 client gets `-32003` when it uses push.** v0.3 push is not supported. The blended card may still say `pushNotifications: true`, because it keeps the v1.0 value.
+- **A v0.3 client gets `VersionNotSupported`.** It sent an `A2A-Version` other than `0.3` or `0.3.x` (for example `1.0` or `0.2`) to a v0.3 method or route. Send `0.3`, or no version.
+- **A client gets `-32600` "Invalid Request".** Its JSON-RPC body has no `"jsonrpc": "2.0"`.
+- **A v0.3 webhook receives a task, not an event.** That is the v0.3 body (see [Push notifications](#push-notifications)). A config made by a v1.0 caller gets v1.0 events.
 - **The client throws `UnsupportedOperation` with "No supported interface".** The card has no v1.x interface and no v0.3 `JSONRPC` or `HTTP+JSON` interface that is in `SupportedBindings`.
 - **The client refuses a v0.3 card as unsigned.** Expected when you require signatures. A v0.3 card can never be verified.
-- **The client refuses a card with "Only 0.3.x and 1.x are supported".** The agent speaks v0.2 or older.
+- **The client refuses a card with "Only 0.2.x, 0.3.x and 1.x are supported".** The agent speaks v0.1 or another 0.x version.
 - **A file name or part metadata is missing on the v0.3 side.** You used HTTP+JSON, which cannot carry it. Check `a2a.compat.v0_3.dropped`.
 - **A v0.3 client cannot authenticate.** The card has a scheme that v0.3 cannot express, for example only a `deviceCode` OAuth flow. This is on purpose.
 - **A tenant named `v1` stops working.** The `/v1/...` routes shadow it.

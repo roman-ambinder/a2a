@@ -34,6 +34,12 @@ public sealed class A2AServerOptions
     /// </summary>
     public TimeSpan LongPollTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
+    /// <summary>
+    ///     The webhook body writer for push configs of another protocol version (v0.3 compat). Set by the compat package;
+    ///     null: such configs are not created, and a stored one fails for good on delivery.
+    /// </summary>
+    internal Push.IPushPayloadEncoder? PushPayloadEncoder { get; set; }
+
     /// <summary>Accepted protocol versions (Major.Minor). Default {"1.0"}.</summary>
     public ISet<string> SupportedVersions { get; } =
         new HashSet<string>(StringComparer.Ordinal) { A2AProtocol.Version };

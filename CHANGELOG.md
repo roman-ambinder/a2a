@@ -6,6 +6,15 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ### Protocol and bindings
 
+- **Behavior change.** A JSON-RPC request without `"jsonrpc": "2.0"` is `InvalidRequest` (`-32600`). A missing member
+  was read as `"2.0"`. This holds on the v1.0 endpoint and on the v0.3 surface. A member of the wrong JSON type is still
+  a parse error (`-32700`).
+- A2A 1.1 client: streams follow `generation` (spec 1.1 §3.2.7, §3.5.2). A gap is reconciled with GetTask, and the task
+  is yielded as a `TaskEvent` after the event; events whose generation is already reflected are dropped; generation is
+  not used once a server sends 0 or one generation on two consecutive update events; a reconnect without an event id
+  (gRPC, or a peer that sends none) resumes with `lastSeenGeneration`. New `A2AClientOptions.ReconcileGenerationGaps`
+  (default true) turns the GetTask off. A 1.0 client never sends `lastSeenGeneration`.
+
 - **Behavior change.** The client asks only for protocol versions it speaks (spec §3.6.2, §3.6.3). `A2AClientFactory`
   selects, in the card's order, the first interface of the same major version and no newer minor than
   `A2AClientOptions.ProtocolVersion`, and sends that interface's version. Before, it took any interface of the same
@@ -28,6 +37,19 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ### Security
 
+- v0.3 compat, **behavior change**: the v0.3 surface refuses any `A2A-Version` other than `0.3` or `0.3.x` (for
+  example `0.2`, or a value that does not parse) with `VersionNotSupported` (spec v1.0.1 §3.6.2). Before, only versions
+  1.0 and later were refused. No version is still read as 0.3.
+- v0.3 compat: v0.3 push notifications are served. The four `tasks/pushNotificationConfig/*` methods, their HTTP+JSON
+  routes and a `pushNotificationConfig` in a send no longer answer `-32003`. A config created over v0.3 gets the task as
+  a v0.3 JSON-RPC `Task` on each delivery (`Content-Type: application/json`, `A2A-Version: 0.3`), as the v0.3 Python SDK
+  sends; v1.0 configs on the same task are unchanged. The extended v0.3 card now says the v1.0 push capability, not
+  `false`. A stored 0.3 config without the compat package is dead-lettered, never sent a v1.0 body.
+- v0.3 compat: v0.2.x peers over JSON-RPC. The server also serves the blended card at `/.well-known/agent.json` (and
+  `/{tenant}/.well-known/agent.json`), which answers 404 without `EnableV03Compat`. `V03CompatClientFactory` reads cards
+  with `protocolVersion` `0.2.x` or with none but a top-level `url`, keeps their JSON-RPC interfaces only (each other one
+  counts `v0.2.interface`), and when the well-known card answers 404 tries `/.well-known/agent.json`. New constant
+  `A2AProtocol.LegacyAgentCardPath`. v0.1 cards are still refused.
 - v0.3 compat: the pure v0.3 extended card (`/v1/card`, `agent/getAuthenticatedExtendedCard`) no longer carries the
   v1.0 card's `signatures`. They cover the v1.0 content, not the v0.3 document served, so a v0.3 client that checks
   signatures rejected the card. The drop is counted as `card.signatures` on `a2a.compat.v0_3.dropped`.

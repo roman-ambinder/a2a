@@ -30,6 +30,12 @@ internal sealed class A2AEndpointRegistry
     /// <summary>Rewrites the served Agent Card body (set by a protocol adapter). Null: the card is served as encoded.</summary>
     public Func<ReadOnlyMemory<byte>, byte[]>? CardBodyTransform { get; set; }
 
+    /// <summary>
+    ///     True when a protocol adapter serves the card at the legacy path <c>/.well-known/agent.json</c> of A2A 0.1 to 0.2.x
+    ///     (v0.3 compat). False: that path answers 404.
+    /// </summary>
+    public bool ServeLegacyCardPath { get; set; }
+
     public bool HasSources
     {
         get

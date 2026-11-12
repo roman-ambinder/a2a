@@ -372,24 +372,48 @@ internal static class V03CardCodec
     }
 
     /// <summary>
-    ///     The card resolver seam of the client: turns a v0.3-only card (a top-level <c>protocolVersion</c> <c>0.3.x</c> and
-    ///     no
-    ///     <c>supportedInterfaces</c>) into a v1.0 card, before the model is read and before the signature is checked. Without
-    ///     <c>signatures</c> the card reads as unsigned, so a client that requires signatures refuses it. A card that has
-    ///     <c>supportedInterfaces</c> (v1.0, or the blended card) is returned as it is. Other <c>0.x</c> versions are refused.
+    ///     The card resolver seam of the client: turns a card older than v1.0 into a v1.0 card, before the model is read and
+    ///     before the signature is checked. Without <c>signatures</c> the card reads as unsigned, so a client that requires
+    ///     signatures refuses it. A card that has <c>supportedInterfaces</c> (v1.0, or the blended card) is returned as it is.
+    ///     <list type="bullet">
+    ///         <item>A v0.3 card (top-level <c>protocolVersion</c> <c>0.3.x</c>) keeps its JSON-RPC and HTTP+JSON interfaces.</item>
+    ///         <item>
+    ///             A v0.2 card (<c>protocolVersion</c> <c>0.2.x</c>, or no <c>protocolVersion</c> but a top-level <c>url</c>,
+    ///             as before 0.2.5) keeps only its JSON-RPC interfaces: v0.3 is a superset of the v0.2 JSON-RPC methods and
+    ///             types, but the v0.2 HTTP+JSON wire was not defined the way v0.3 defines it.
+    ///         </item>
+    ///     </list>
+    ///     Other <c>0.x</c> versions are refused.
     /// </summary>
-    /// <exception cref="A2AException">The card is v0.2 or older.</exception>
-    /// <exception cref="JsonException">The v0.3 card is malformed.</exception>
+    /// <exception cref="A2AException">The card is v0.1 or another 0.x version.</exception>
+    /// <exception cref="JsonException">The card is malformed.</exception>
     public static JsonObject NormalizeForResolver(JsonObject card)
     {
         if (card["supportedInterfaces"] is JsonArray { Count: > 0 }) return card;
         var version = V03Json.Str(card, "protocolVersion");
-        if (version is null) return card;
+        if (version is null)
+            return card["url"] is JsonValue url && url.TryGetValue<string>(out _) ? V02ToV1(card) : card;
         if (V03Compat.IsV03Version(version)) return ToV1(card);
+        if (V03Compat.IsV02Version(version)) return V02ToV1(card);
         if (version.StartsWith("0.", StringComparison.Ordinal))
             throw new A2AException(A2AErrorCode.InvalidAgentResponse,
-                $"The Agent Card is protocol version '{TextSanitizer.ForMessage(version)}'. Only 0.3.x and 1.x are supported.");
+                $"The Agent Card is protocol version '{TextSanitizer.ForMessage(version)}'. Only 0.2.x, 0.3.x and 1.x are supported.");
         return card;
+    }
+
+    /// <summary>A v0.2 card as a v1.0 card with only its JSON-RPC interfaces, each marked 0.3 (the client speaks v0.3 to it).</summary>
+    private static JsonObject V02ToV1(JsonObject v02)
+    {
+        var v1 = ToV1(v02);
+        if (v1["supportedInterfaces"] is not JsonArray interfaces) return v1;
+        for (var i = interfaces.Count - 1; i >= 0; i--)
+            if (interfaces[i] is JsonObject itf && V03Json.Str(itf, "protocolBinding") != ProtocolBindings.JsonRpc)
+            {
+                interfaces.RemoveAt(i);
+                V03LossReporter.Drop("v0.2.interface");
+            }
+
+        return v1;
     }
 
     private static string NormalizeBinding(string transport)

@@ -118,18 +118,6 @@ public class ClientEndToEndTests
     }
 
     [Theory, MemberData(nameof(Bindings))]
-    public async Task Push_config_is_refused_by_the_v03_server_as_push_not_supported(string binding)
-    {
-        await using var host = await V03Host.StartAsync();
-        var client = ClientFor(binding, Recorded(host).Http);
-        var ex = await Assert.ThrowsAsync<A2AException>(() => client.CreateTaskPushNotificationConfigAsync(new TaskPushNotificationConfig
-        {
-            TaskId = "t1", Url = "https://hook.example/x",
-        }));
-        Assert.Equal(A2AErrorCode.PushNotificationNotSupported, ex.Code);
-    }
-
-    [Theory, MemberData(nameof(Bindings))]
     public async Task List_tasks_is_unavailable(string binding)
     {
         await using var host = await V03Host.StartAsync();

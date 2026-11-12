@@ -4,8 +4,10 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using A2A.Json;
 using A2A.Server.AspNetCore;
+using A2A.Server.Storage;
 using A2A.Server.Streaming;
 using A2A.Signing;
+using A2A.Text;
 using A2A.V0_3Compat;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -59,9 +61,11 @@ internal sealed partial class V03Surface
     private readonly ILogger _logger;
 
     public V03Surface(IA2ARequestHandler handler, IOptions<A2AServerOptions> serverOptions,
-        IHostEnvironment environment, ILoggerFactory loggerFactory)
+        IHostEnvironment environment, ILoggerFactory loggerFactory, TaskStore tasks)
     {
         _handler = handler;
+        // Push configs a v0.3 caller creates get v0.3 webhook bodies. Set before the host starts the delivery service.
+        serverOptions.Value.PushPayloadEncoder ??= new V03PushPayloadEncoder(tasks, serverOptions.Value.Limits);
         _logger = loggerFactory.CreateLogger("A2A.Server.V0_3Compat");
         _limits = serverOptions.Value.Limits;
         _keepAlive = serverOptions.Value.Streaming.KeepAliveInterval;
@@ -131,10 +135,12 @@ internal sealed partial class V03Surface
                             if (members.Id.Start >= 0)
                                 id = JsonSerializer.Deserialize(json[members.Id.Start..members.Id.End],
                                     A2AJson.GetTypeInfo<JsonElement>());
+                            // JSON-RPC 2.0: "jsonrpc" MUST be exactly "2.0" (v0.3 spec §6.11). A missing member is
+                            // InvalidRequest, not a default.
                             jsonRpc = members.JsonRpc.Start >= 0
                                 ? JsonSerializer.Deserialize(json[members.JsonRpc.Start..members.JsonRpc.End],
                                     A2AJson.GetTypeInfo<string>())
-                                : "2.0";
+                                : null;
                             if (members.Params.Start >= 0 && json[members.Params.Start] != (byte)'n')
                                 parameters = V03Json.Parse(json[members.Params.Start..members.Params.End]);
                         }
@@ -186,7 +192,7 @@ internal sealed partial class V03Surface
             if (id is { } idv &&
                 idv.ValueKind is not (JsonValueKind.String or JsonValueKind.Number or JsonValueKind.Null))
                 throw new A2AException(A2AErrorCode.InvalidRequest, "id must be a string, number, or null");
-            RequireNotV1Header(http);
+            RequireV03Header(http);
             _handler.ValidateCall(call);
             V03LossReporter.Request(JsonRpcBinding, method);
 
@@ -195,7 +201,6 @@ internal sealed partial class V03Surface
                 case V03Compat.Methods.SendMessage:
                 {
                     var request = ReadParams(parameters, V03JsonCodec.Instance.ReadSendRequest);
-                    RefusePush(request);
                     var result = await _handler.SendMessageAsync(request, call, ct).ConfigureAwait(false);
                     await RpcOkAsync(http, call, id, V03JsonCodec.Instance.WriteSendResult(result))
                         .ConfigureAwait(false);
@@ -204,7 +209,6 @@ internal sealed partial class V03Surface
                 case V03Compat.Methods.SendStreamingMessage:
                 {
                     var request = ReadParams(parameters, V03JsonCodec.Instance.ReadSendRequest);
-                    RefusePush(request);
                     var caughtUp = HttpPlumbing.CaughtUpSignal();
                     await RpcStreamAsync(http, call, id,
                         _handler.SendStreamingMessageAsync(request, call, HttpPlumbing.LastEventId(http),
@@ -240,10 +244,47 @@ internal sealed partial class V03Surface
                     await RpcOkAsync(http, call, id, card).ConfigureAwait(false);
                     break;
                 }
-                case ListTasksMethod:
+                case V03Compat.Methods.SetPushConfig:
+                {
+                    var config = ReadParams(parameters, p => V03JsonCodec.Instance.ReadPushConfig(V03Json.Obj(p, "params")));
+                    config.Tenant = call.Tenant;
+                    var created = await _handler.CreateTaskPushNotificationConfigAsync(config, call, ct)
+                        .ConfigureAwait(false);
+                    await RpcOkAsync(http, call, id, V03JsonCodec.Instance.WritePushConfig(created))
+                        .ConfigureAwait(false);
+                    break;
+                }
+                case V03Compat.Methods.GetPushConfig:
+                {
+                    var (taskId, configId) = ReadParams(parameters, ReadPushConfigIdParams);
+                    var config = await GetPushConfigAsync(call, taskId, configId, ct).ConfigureAwait(false);
+                    await RpcOkAsync(http, call, id, V03JsonCodec.Instance.WritePushConfig(config))
+                        .ConfigureAwait(false);
+                    break;
+                }
+                case V03Compat.Methods.ListPushConfig:
+                {
+                    var (taskId, _) = ReadParams(parameters, ReadPushConfigIdParams);
+                    var list = new JsonArray();
+                    foreach (var config in await ListAllPushConfigsAsync(call, taskId, ct).ConfigureAwait(false))
+                        V03Json.Append(list, V03JsonCodec.Instance.WritePushConfig(config));
+                    await RpcOkAsync(http, call, id, list).ConfigureAwait(false);
+                    break;
+                }
+                case V03Compat.Methods.DeletePushConfig:
+                {
+                    var (taskId, configId) = ReadParams(parameters, ReadPushConfigIdParams);
+                    if (string.IsNullOrEmpty(configId))
+                        throw A2AException.InvalidField("pushNotificationConfigId", "pushNotificationConfigId is required");
+                    await _handler.DeleteTaskPushNotificationConfigAsync(
+                            new DeleteTaskPushNotificationConfigRequest { TaskId = taskId, Id = configId, Tenant = call.Tenant },
+                            call, ct)
+                        .ConfigureAwait(false);
+                    await RpcOkAsync(http, call, id, null).ConfigureAwait(false);
+                    break;
+                }
+                default: // tasks/list: not a v0.3 method
                     throw new A2AException(A2AErrorCode.MethodNotFound, $"Method '{method}' not found");
-                default:
-                    throw PushNotSupported(); // the four push config methods
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -270,7 +311,7 @@ internal sealed partial class V03Surface
         return read(parameters ?? new JsonObject());
     }
 
-    private static async Task RpcOkAsync(HttpContext http, ServerCallContext call, JsonElement? id, JsonNode result)
+    private static async Task RpcOkAsync(HttpContext http, ServerCallContext call, JsonElement? id, JsonNode? result)
     {
         WriteExtensions(http, call);
         http.Response.StatusCode = 200;
@@ -326,13 +367,12 @@ internal sealed partial class V03Surface
             Map(group, "POST", tenantPrefix + RoutePrefix + "/tasks/{id}:cancel", CancelTask);
             Map(group, "GET|POST", tenantPrefix + RoutePrefix + "/tasks/{id}:subscribe", Subscribe);
             Map(group, "GET", tenantPrefix + RoutePrefix + "/card", GetCard);
-            // Push configs are refused (-32003), but the routes exist so the answer is the protocol's, not a 404.
-            Map(group, "POST", tenantPrefix + RoutePrefix + "/tasks/{id}/pushNotificationConfigs", PushRefused);
-            Map(group, "GET", tenantPrefix + RoutePrefix + "/tasks/{id}/pushNotificationConfigs", PushRefused);
+            Map(group, "POST", tenantPrefix + RoutePrefix + "/tasks/{id}/pushNotificationConfigs", CreatePushConfig);
+            Map(group, "GET", tenantPrefix + RoutePrefix + "/tasks/{id}/pushNotificationConfigs", ListPushConfigs);
             Map(group, "GET", tenantPrefix + RoutePrefix + "/tasks/{id}/pushNotificationConfigs/{configId}",
-                PushRefused);
+                GetPushConfig);
             Map(group, "DELETE", tenantPrefix + RoutePrefix + "/tasks/{id}/pushNotificationConfigs/{configId}",
-                PushRefused);
+                DeletePushConfig);
         }
     }
 
@@ -349,7 +389,6 @@ internal sealed partial class V03Surface
         return Run(http, "message:send", async (call, ct) =>
         {
             var request = V03ProtoJsonCodec.Instance.ReadSendRequest(await BodyAsync(http).ConfigureAwait(false));
-            RefusePush(request);
             return V03ProtoJsonCodec.Instance.WriteSendResult(await _handler.SendMessageAsync(request, call, ct)
                 .ConfigureAwait(false));
         });
@@ -360,7 +399,6 @@ internal sealed partial class V03Surface
         return RunStream(http, "message:stream", async (call, caughtUp, ct) =>
         {
             var request = V03ProtoJsonCodec.Instance.ReadSendRequest(await BodyAsync(http).ConfigureAwait(false));
-            RefusePush(request);
             return _handler.SendStreamingMessageAsync(request, call, HttpPlumbing.LastEventId(http), caughtUp, ct);
         });
     }
@@ -402,9 +440,104 @@ internal sealed partial class V03Surface
         return Run(http, "card", async (call, ct) => await ExtendedCardAsync(call, ct).ConfigureAwait(false));
     }
 
-    private Task PushRefused(HttpContext http)
+    private Task CreatePushConfig(HttpContext http)
     {
-        return Run(http, "tasks/pushNotificationConfig", (_, _) => throw PushNotSupported());
+        return Run(http, "tasks/pushNotificationConfig", async (call, ct) =>
+        {
+            // The body is the proto TaskPushNotificationConfig ("name" may be left out: the route names the task).
+            var body = V03Json.Obj(await BodyAsync(http).ConfigureAwait(false), "push config");
+            var taskId = Route(http, "id");
+            body["name"] ??= V03ProtoJsonCodec.PushConfigName(taskId, null);
+            var config = V03ProtoJsonCodec.Instance.ReadPushConfig(body);
+            if (config.TaskId != taskId)
+                throw A2AException.InvalidField("name", "name must be the task of the route");
+            if (http.Request.Query["configId"].ToString() is { Length: > 0 } configId) config.Id = configId;
+            config.Tenant = call.Tenant;
+            return V03ProtoJsonCodec.Instance.WritePushConfig(await _handler
+                .CreateTaskPushNotificationConfigAsync(config, call, ct).ConfigureAwait(false));
+        });
+    }
+
+    private Task GetPushConfig(HttpContext http)
+    {
+        return Run(http, "tasks/pushNotificationConfig", async (call, ct) =>
+            V03ProtoJsonCodec.Instance.WritePushConfig(await GetPushConfigAsync(call, Route(http, "id"),
+                Route(http, "configId"), ct).ConfigureAwait(false)));
+    }
+
+    private Task ListPushConfigs(HttpContext http)
+    {
+        return Run(http, "tasks/pushNotificationConfig", async (call, ct) =>
+        {
+            var response = await _handler.ListTaskPushNotificationConfigsAsync(new ListTaskPushNotificationConfigsRequest
+            {
+                TaskId = Route(http, "id"), Tenant = call.Tenant, PageSize = QueryInt(http, "pageSize"),
+                PageToken = http.Request.Query["pageToken"].ToString() is { Length: > 0 } token ? token : null
+            }, call, ct).ConfigureAwait(false);
+            var configs = new JsonArray();
+            foreach (var config in response.Configs) V03Json.Append(configs, V03ProtoJsonCodec.Instance.WritePushConfig(config));
+            var result = new JsonObject { ["configs"] = configs };
+            if (response.NextPageToken is { Length: > 0 } next) result["nextPageToken"] = next;
+            return result;
+        });
+    }
+
+    private Task DeletePushConfig(HttpContext http)
+    {
+        return Run(http, "tasks/pushNotificationConfig", async (call, ct) =>
+        {
+            await _handler.DeleteTaskPushNotificationConfigAsync(new DeleteTaskPushNotificationConfigRequest
+                { TaskId = Route(http, "id"), Id = Route(http, "configId"), Tenant = call.Tenant }, call, ct)
+                .ConfigureAwait(false);
+            return new JsonObject(); // google.protobuf.Empty
+        });
+    }
+
+    /// <summary>
+    ///     A push config of the task. Without a config id (optional in v0.3 <c>tasks/pushNotificationConfig/get</c>), the
+    ///     task's first config, as the v0.3 Python SDK answers; none is the core's not-found answer.
+    /// </summary>
+    private async Task<TaskPushNotificationConfig> GetPushConfigAsync(ServerCallContext call, string taskId,
+        string? configId, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(configId))
+        {
+            var first = await _handler.ListTaskPushNotificationConfigsAsync(new ListTaskPushNotificationConfigsRequest
+                { TaskId = taskId, Tenant = call.Tenant, PageSize = 1 }, call, ct).ConfigureAwait(false);
+            if (first.Configs.Count > 0) return first.Configs[0];
+            configId = taskId; // the v0.3 default id: answered with the core's not-found error
+        }
+
+        return await _handler.GetTaskPushNotificationConfigAsync(
+            new GetTaskPushNotificationConfigRequest { TaskId = taskId, Id = configId, Tenant = call.Tenant }, call, ct)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>Every push config of the task (v0.3 JSON-RPC list has no paging), at most <see cref="MaxListedPushConfigs" />.</summary>
+    private async Task<List<TaskPushNotificationConfig>> ListAllPushConfigsAsync(ServerCallContext call,
+        string taskId, CancellationToken ct)
+    {
+        var all = new List<TaskPushNotificationConfig>();
+        string? token = null;
+        do
+        {
+            var page = await _handler.ListTaskPushNotificationConfigsAsync(new ListTaskPushNotificationConfigsRequest
+                { TaskId = taskId, Tenant = call.Tenant, PageToken = token }, call, ct).ConfigureAwait(false);
+            all.AddRange(page.Configs);
+            token = page.NextPageToken;
+        } while (!string.IsNullOrEmpty(token) && all.Count < MaxListedPushConfigs);
+
+        return all.Count > MaxListedPushConfigs ? all.GetRange(0, MaxListedPushConfigs) : all;
+    }
+
+    private const int MaxListedPushConfigs = 1000;
+
+    /// <summary>Reads the params of push config get, list and delete: <c>id</c> (the task) and <c>pushNotificationConfigId</c>.</summary>
+    private static (string TaskId, string? ConfigId) ReadPushConfigIdParams(JsonNode? node)
+    {
+        var o = V03Json.Obj(node, "params");
+        if (o["metadata"] is not null) V03LossReporter.Drop("tasks/pushNotificationConfig.metadata");
+        return (V03Json.ReqStr(o, "id"), V03Json.Str(o, "pushNotificationConfigId"));
     }
 
     private async Task Run(HttpContext http, string operation,
@@ -424,7 +557,7 @@ internal sealed partial class V03Surface
 
         try
         {
-            RequireNotV1Header(http);
+            RequireV03Header(http);
             _handler.ValidateCall(call);
             V03LossReporter.Request(RestBinding, operation);
             var result = await action(call, http.RequestAborted).ConfigureAwait(false);
@@ -459,7 +592,7 @@ internal sealed partial class V03Surface
 
         try
         {
-            RequireNotV1Header(http);
+            RequireV03Header(http);
             _handler.ValidateCall(call);
             V03LossReporter.Request(RestBinding, operation);
             var caughtUp = HttpPlumbing.CaughtUpSignal();
@@ -573,28 +706,27 @@ internal sealed partial class V03Surface
             http.Response.Headers[V03Compat.ExtensionsHeader] = string.Join(",", call.ActivatedExtensions);
     }
 
-    /// <summary>The shape picked the v0.3 surface; a header of version 1.0 or later can only veto it.</summary>
-    private static void RequireNotV1Header(HttpContext http)
+    /// <summary>
+    ///     The shape picked the v0.3 surface; the A2A-Version header (or query parameter) can only veto it. An absent
+    ///     version means 0.3 (spec v1.0.1 §3.6.2), and <c>0.3</c> or <c>0.3.x</c> is accepted. Any other value, a v1.0 one,
+    ///     an older one such as <c>0.2</c>, or one that does not parse, is <see cref="A2AErrorCode.VersionNotSupported" />:
+    ///     agents MUST answer an unsupported version with that error, not with the semantics of another one (§3.6.2).
+    /// </summary>
+    private static void RequireV03Header(HttpContext http)
     {
         string? version = http.Request.Headers[A2AProtocol.Headers.Version];
         if (string.IsNullOrWhiteSpace(version)) version = http.Request.Query[A2AProtocol.Headers.Version];
-        if (!V03Compat.IsV1OrLater(version)) return;
+        if (string.IsNullOrWhiteSpace(version) || V03Compat.IsV03Version(version!.Trim())) return;
         throw new A2AException(A2AErrorCode.VersionNotSupported,
-            $"This is a protocol v0.3 request, but {A2AProtocol.Headers.Version} says '{version}'. Send v1.0 methods (for example SendMessage) with v1.0, and v0.3 methods without a v1.0 version.")
+            V03Compat.IsV1OrLater(version)
+                ? $"This is a protocol v0.3 request, but {A2AProtocol.Headers.Version} says '{TextSanitizer.ForMessage(version.Trim())}'. Send v1.0 methods (for example SendMessage) with v1.0, and v0.3 methods with 0.3 or without a version."
+                : $"Protocol version '{TextSanitizer.ForMessage(version.Trim())}' is not supported by the v0.3 surface. Send {A2AProtocol.Headers.Version}: 0.3, or no version.")
         {
-            Metadata = new Dictionary<string, string> { ["requestedVersion"] = version!.Trim() }
+            Metadata = new Dictionary<string, string>
+            {
+                ["requestedVersion"] = version.Trim(), ["supportedVersions"] = V03Compat.HeaderVersion
+            }
         };
-    }
-
-    private static A2AException PushNotSupported()
-    {
-        return new A2AException(A2AErrorCode.PushNotificationNotSupported,
-            "Push notifications are not supported on the v0.3 interface of this agent.");
-    }
-
-    private static void RefusePush(SendMessageRequest request)
-    {
-        if (request.Configuration?.TaskPushNotificationConfig is not null) throw PushNotSupported();
     }
 
     /// <summary>The extended card in v0.3 form (a pure v0.3 card; it says no push notifications, as v0.3 push is refused).</summary>
@@ -608,7 +740,7 @@ internal sealed partial class V03Surface
         if (v1["supportedInterfaces"] is not JsonArray { Count: > 0 })
             v1["supportedInterfaces"] =
                 AgentCardCanonicalizer.ToNode(_handler.AgentCard)["supportedInterfaces"]?.DeepClone();
-        if (!V03CardCodec.TryToV03(v1, false, out var v03, out var problem))
+        if (!V03CardCodec.TryToV03(v1, null, out var v03, out var problem))
             throw new A2AException(A2AErrorCode.Internal,
                 $"The extended Agent Card cannot be served to v0.3 clients: {problem}");
         // The v1.0 signatures do not cover the v0.3 document, so TryToV03 leaves them out.

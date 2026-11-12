@@ -23,6 +23,7 @@ public sealed class ClientOptionsCloneTests
         [nameof(A2AClientOptions.ProtocolVersion)] = "9.9",
         [nameof(A2AClientOptions.RequireHttpsWebhooks)] = true,
         [nameof(A2AClientOptions.RequireExactProtocolVersion)] = true,
+        [nameof(A2AClientOptions.ReconcileGenerationGaps)] = false,
         [nameof(A2AClientOptions.Extensions)] = new List<string> { "urn:ext" },
         [nameof(A2AClientOptions.Tenant)] = "tenant-a",
         [nameof(A2AClientOptions.SupportedBindings)] = new List<string> { "custom" },

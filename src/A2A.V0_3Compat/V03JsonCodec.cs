@@ -319,7 +319,7 @@ internal sealed class V03JsonCodec : V03Codec
     // ---- JSON-RPC envelopes ----
 
     /// <summary>A JSON-RPC success response around <paramref name="result" />.</summary>
-    public static JsonObject WriteSuccess(JsonElement? id, JsonNode result)
+    public static JsonObject WriteSuccess(JsonElement? id, JsonNode? result)
     {
         return new JsonObject
         {

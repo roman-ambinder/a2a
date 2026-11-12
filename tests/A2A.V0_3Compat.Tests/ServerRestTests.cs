@@ -184,7 +184,7 @@ public class ServerRestTests
         Assert.Equal("0.3.0", card["protocolVersion"]!.GetValue<string>());
         Assert.Equal("Extended card for bob", card["description"]!.GetValue<string>());
         Assert.Equal("http", card["securitySchemes"]!["bearer"]!["type"]!.GetValue<string>());
-        Assert.False(card["capabilities"]!["pushNotifications"]!.GetValue<bool>());
+        Assert.True(card["capabilities"]!["pushNotifications"]!.GetValue<bool>());
     }
 
     [Fact]
@@ -205,29 +205,6 @@ public class ServerRestTests
         var card = JsonNode.Parse(text)!;
         Assert.Equal("0.3.0", card["protocolVersion"]!.GetValue<string>());
         Assert.Null(card["signatures"]);
-    }
-
-    [Theory]
-    [InlineData("POST", "/a2a/v1/tasks/t1/pushNotificationConfigs")]
-    [InlineData("GET", "/a2a/v1/tasks/t1/pushNotificationConfigs")]
-    [InlineData("GET", "/a2a/v1/tasks/t1/pushNotificationConfigs/c1")]
-    [InlineData("DELETE", "/a2a/v1/tasks/t1/pushNotificationConfigs/c1")]
-    public async Task Push_config_routes_are_refused_with_32003(string method, string path)
-    {
-        await using var host = await V03Host.StartAsync();
-        var (response, text) = await SendAsync(host.Http(), new HttpMethod(method), path, method == "POST" ? "{}" : null);
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal(-32003, JsonNode.Parse(text)!["code"]!.GetValue<int>());
-    }
-
-    [Fact]
-    public async Task A_push_config_in_a_send_is_refused()
-    {
-        await using var host = await V03Host.StartAsync();
-        var body = """{"message":{"messageId":"m","role":"ROLE_USER","content":[{"text":"hello"}]},"configuration":{"pushNotification":{"url":"https://hooks.example/x"}}}""";
-        var (response, text) = await SendAsync(host.Http(), HttpMethod.Post, "/a2a/v1/message:send", body);
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal(-32003, JsonNode.Parse(text)!["code"]!.GetValue<int>());
     }
 
     [Fact]

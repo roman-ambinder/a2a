@@ -128,9 +128,9 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
                         ? rt.SendStreamingFramesAsync(request, options, ct)
                         : Frames(_transport.SendStreamingMessageAsync(request, options, ct), ct);
                 },
-                (taskId, cursor, ct) => Resubscribe(request.Tenant, taskId, cursor, options, ct),
+                (taskId, cursor, generation, ct) => Resubscribe(request.Tenant, taskId, cursor, generation, options, ct),
                 (taskId, ct) => GetTaskForResume(request.Tenant, taskId, options, ct),
-                _options.TimeProvider, cancellationToken)))), request.Message);
+                _options.TimeProvider, cancellationToken, _options.ReconcileGenerationGaps)))), request.Message);
     }
 
     /// <inheritdoc />
@@ -652,7 +652,9 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
 
     /// <summary>
     ///     Follows a task: subscribes, and when the connection drops reconnects with backoff (0.5 s, 1 s, 2 s, 4 s, 8 s; then
-    ///     the error is thrown) and <c>Last-Event-ID</c>, so no event is lost or repeated. A task that has already finished
+    ///     the error is thrown) and <c>Last-Event-ID</c> (or, without event ids, the A2A 1.1 <c>lastSeenGeneration</c>), so no
+    ///     event is lost or repeated. On A2A 1.1, a gap in the events' generations is reconciled with GetTask (see
+    ///     <see cref="A2AClientOptions.ReconcileGenerationGaps" />). A task that has already finished
     ///     is answered with its final snapshot as a <see cref="TaskEvent" />. The same <paramref name="options" /> (headers,
     ///     credentials) are used on every reconnect.
     /// </summary>
@@ -673,16 +675,21 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
         return ClientTelemetry.TraceStream(A2AProtocol.Methods.SubscribeToTask, this, tenant, taskId, Inspect(Checked(Guard(
             ResumableStream.RunAsync(
                 taskId,
-                ct => Resubscribe(tenant, taskId, null, options, ct),
-                (id, cursor, ct) => Resubscribe(tenant, id, cursor, options, ct),
+                ct => Resubscribe(tenant, taskId, null, null, options, ct),
+                (id, cursor, generation, ct) => Resubscribe(tenant, id, cursor, generation, options, ct),
                 (id, ct) => GetTaskForResume(tenant, id, options, ct),
-                _options.TimeProvider, cancellationToken)))));
+                _options.TimeProvider, cancellationToken, _options.ReconcileGenerationGaps)))));
     }
 
     private IAsyncEnumerable<StreamFrame> Resubscribe(string? tenant, string taskId, string? lastEventId,
-        A2ARequestOptions? options, CancellationToken ct)
+        long? lastSeenGeneration, A2ARequestOptions? options, CancellationToken ct)
     {
-        var request = new SubscribeToTaskRequest { Id = taskId, Tenant = tenant ?? _options.Tenant };
+        // lastSeenGeneration is A2A 1.1: a 1.0 client never sends it (generations only come from a 1.1 wire anyway).
+        var request = new SubscribeToTaskRequest
+        {
+            Id = taskId, Tenant = tenant ?? _options.Tenant,
+            LastSeenGeneration = A2AProtocol.IsVersion11OrLater(_options.ProtocolVersion) ? lastSeenGeneration : null
+        };
         return _transport is IResumableTransport rt
             ? rt.SubscribeToTaskAsync(request, options, lastEventId, ct)
             : Frames(_transport.SubscribeToTaskAsync(request, options, ct), ct);
