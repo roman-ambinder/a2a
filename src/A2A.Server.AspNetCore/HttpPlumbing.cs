@@ -10,6 +10,7 @@ using A2A.Diagnostics;
 using A2A.Json;
 using A2A.Server.Agents;
 using A2A.Server.Streaming;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Routing;
@@ -85,11 +86,13 @@ internal static partial class HttpPlumbing
                 throw new A2AException(A2AErrorCode.Unauthenticated);
         }
 
-        // Kept only when a token exchanger is registered and the caller is authenticated. Never logged or stored.
+        // Kept only when a token exchanger is registered, the caller is authenticated and a bearer scheme validated the
+        // token as the caller's. Never logged or stored.
         var bearer = principal != ServerCallContext.AnonymousPrincipal &&
                      services.GetService<ITokenExchanger>() is not null
             ? BearerToken(http.Request.Headers.Authorization)
             : null;
+        if (bearer is not null && !BearerSchemeValidated(http, user, principal, principalResolver)) bearer = null;
 
         return new ServerCallContext
         {
@@ -113,6 +116,53 @@ internal static partial class HttpPlumbing
                 ? parent
                 : default
         };
+    }
+
+    /// <summary>
+    ///     True when a bearer scheme validated the request's token as the token of the caller: an ASP.NET Core scheme whose
+    ///     handler is the JWT bearer handler (<c>AddJwtBearer</c>), or one declared for a bearer, OAuth 2.0 or OpenID Connect
+    ///     card scheme (<see cref="A2ACardAuthenticationExtensions.AddCardAuthentication" />), authenticated the request, and
+    ///     the token's user is the caller (it shares an identity with <paramref name="user" />, or resolves to
+    ///     <paramref name="principal" />). Another scheme (an API key, a cookie) authenticating the caller is not enough:
+    ///     nothing checked the header then.
+    /// </summary>
+    /// <remarks>
+    ///     The handlers' results for this request are reused (a handler authenticates once per request). A scheme that has
+    ///     not run yet runs now; if it cannot answer at once, the token is not kept.
+    /// </remarks>
+    private static bool BearerSchemeValidated(HttpContext http, System.Security.Claims.ClaimsPrincipal user,
+        string principal, IPrincipalResolver principalResolver)
+    {
+        var services = http.RequestServices;
+        if (services.GetService<IAuthenticationSchemeProvider>() is not { } provider ||
+            services.GetService<IAuthenticationHandlerProvider>() is not { } handlers)
+            return false;
+        var all = provider.GetAllSchemesAsync();
+        if (!all.IsCompletedSuccessfully) return false;
+        var declared = services.GetServices<A2ACardAuthenticationExtensions.BearerScheme>();
+        foreach (var scheme in all.Result)
+        {
+            if (!IsJwtBearerHandler(scheme.HandlerType) && !declared.Any(d => d.Name == scheme.Name)) continue;
+            var handler = handlers.GetHandlerAsync(http, scheme.Name);
+            if (!handler.IsCompletedSuccessfully || handler.Result is not { } h) continue;
+            var result = h.AuthenticateAsync();
+            if (!result.IsCompletedSuccessfully || result.Result is not { Succeeded: true, Principal: { } token })
+                continue;
+            if (token.Identities.Any(i => user.Identities.Contains(i)) ||
+                string.Equals(principalResolver.Resolve(token), principal, StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>True for <c>Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerHandler</c> and handlers derived from it.</summary>
+    private static bool IsJwtBearerHandler(Type? type)
+    {
+        for (; type is not null; type = type.BaseType)
+            if (type.FullName == "Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerHandler")
+                return true;
+        return false;
     }
 
     /// <summary>

@@ -1,7 +1,14 @@
+using System.Security.Claims;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using A2A.Client;
 using A2A.Delegation;
+using A2A.Server.AspNetCore;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace A2A.Grpc.Tests;
 
@@ -64,8 +71,11 @@ public class GrpcDelegationTests
     public async Task Exchanger_receives_the_callers_bearer_token()
     {
         var exchanger = new RecordingExchanger();
-        await using var host = await GrpcHost.StartAsync(server: b => b
+        await using var host = await GrpcHost.StartAsync(services: s => s.AddAuthentication()
+                .AddScheme<AuthenticationSchemeOptions, HeaderBearerHandler>(HeaderBearerHandler.SchemeName, null),
+            server: b => b
             .AddTokenExchanger(exchanger)
+            .AddBearerAuthentication(HeaderBearerHandler.SchemeName)
             .AddAgentExecutor(async (ctx, updater, ct) =>
             {
                 await ctx.ExchangeTokenAsync("api://b", ["read"], ct);
@@ -77,5 +87,38 @@ public class GrpcDelegationTests
         Assert.Equal("grpc-caller-token", request.SubjectToken);
         Assert.Equal("api://b", request.Audience);
         Assert.Equal(["read"], request.Scopes);
+    }
+
+    [Fact]
+    public async Task A_bearer_header_no_bearer_scheme_validated_is_not_kept()
+    {
+        var exchanger = new RecordingExchanger();
+        bool? can = null;
+        await using var host = await GrpcHost.StartAsync(server: b => b
+            .AddTokenExchanger(exchanger)
+            .AddAgentExecutor(async (ctx, updater, ct) =>
+            {
+                can = ctx.CanExchangeToken;
+                await updater.CompleteAsync("done", ct);
+            }));
+        var options = new A2ARequestOptions { Headers = { ["Authorization"] = "Bearer unchecked-token" } };
+        await host.Client().SendMessageAsync(Message.FromUser("hi"), options: options);
+        Assert.False(can);
+        Assert.Empty(exchanger.Requests);
+    }
+
+    /// <summary>A bearer scheme: any <c>Authorization: Bearer</c> token is valid, its subject is <c>x-test-user</c>.</summary>
+    private sealed class HeaderBearerHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
+        : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+    {
+        public const string SchemeName = "TestBearer";
+
+        protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+        {
+            if (!Request.Headers.Authorization.ToString().StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                return Task.FromResult(AuthenticateResult.NoResult());
+            var id = new ClaimsIdentity([new Claim("sub", Request.Headers["x-test-user"].ToString())], SchemeName);
+            return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(id), SchemeName)));
+        }
     }
 }

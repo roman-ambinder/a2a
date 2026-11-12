@@ -62,8 +62,25 @@ public static class A2ACardAuthenticationExtensions
         if (services.Any(d => d.ImplementationInstance is CardSchemeDeclaration c && c.CardName == cardSchemeName))
             throw new ArgumentException($"The card scheme '{cardSchemeName}' is already declared.", nameof(cardSchemeName));
         services.AddSingleton<ICardSchemeDeclaration>(new CardSchemeDeclaration(cardSchemeName, scheme, [.. scopes ?? []]));
+        if (CarriesBearerToken(scheme) &&
+            !services.Any(d => d.ImplementationInstance is BearerScheme b && b.Name == authenticationScheme))
+            services.AddSingleton(new BearerScheme(authenticationScheme));
         AddDefaultScheme(services, authenticationScheme);
         return builder;
+    }
+
+    /// <summary>
+    ///     True for card schemes whose credential is an <c>Authorization: Bearer</c> token: HTTP bearer, OAuth 2.0 and
+    ///     OpenID Connect.
+    /// </summary>
+    private static bool CarriesBearerToken(SecurityScheme scheme)
+    {
+        return scheme switch
+        {
+            HttpAuthScheme http => string.Equals(http.Value.Scheme, "Bearer", StringComparison.OrdinalIgnoreCase),
+            OAuth2Scheme or OpenIdConnectScheme => true,
+            _ => false
+        };
     }
 
     /// <summary>
@@ -117,6 +134,12 @@ public static class A2ACardAuthenticationExtensions
     }
 
     internal sealed record DefaultScheme(string Name);
+
+    /// <summary>
+    ///     An ASP.NET Core scheme declared for a card scheme that carries a bearer token: when it validated the request's
+    ///     token, that token may go to the token exchanger (see <c>HttpPlumbing.BearerToken</c>).
+    /// </summary>
+    internal sealed record BearerScheme(string Name);
 
     private sealed record CardSchemeDeclaration(string CardName, SecurityScheme Scheme, IReadOnlyList<string> Scopes)
         : ICardSchemeDeclaration;

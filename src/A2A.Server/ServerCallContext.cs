@@ -39,7 +39,8 @@ public sealed class ServerCallContext
     public string LimitPartition => LimitPartitionFor(Principal, RemoteAddress);
 
     /// <summary>
-    ///     The caller's bearer token. Set by a binding only when a token exchanger is registered; readable only by the server
+    ///     The caller's bearer token. Set by a binding only when a token exchanger is registered and a bearer scheme
+    ///     validated the token as the caller's; readable only by the server
     ///     core,
     ///     so agent code never sees it and cannot forward it. Never logged or stored.
     /// </summary>

@@ -42,12 +42,52 @@ public class TokenExchangeServerTests
         }
     }
 
-    private static Task<TestAgentHost> StartAsync(IAgentExecutor agent, ITokenExchanger? exchanger) =>
+    /// <param name="bearerScheme">
+    ///     Registers <see cref="TestBearerHandler" /> as the bearer scheme (<c>AddBearerAuthentication</c>). The caller is
+    ///     still authenticated by the test scheme (<c>X-Test-User</c>).
+    /// </param>
+    private static Task<TestAgentHost> StartAsync(IAgentExecutor agent, ITokenExchanger? exchanger, bool bearerScheme = true) =>
         TestAgentHost.StartAsync(services: s =>
         {
             s.Replace(ServiceDescriptor.Singleton(agent));
             if (exchanger is not null) s.AddSingleton(exchanger);
+            if (!bearerScheme) return;
+            s.AddAuthentication().AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, TestBearerHandler>(TestBearerHandler.SchemeName, null);
+            s.AddA2AServer().AddBearerAuthentication(TestBearerHandler.SchemeName);
         });
+
+    private static async Task<bool?> CanExchangeAsync(string binding, bool bearerScheme, string header, string? tokenSub = null)
+    {
+        bool? can = null;
+        var agent = new ProbeAgent((ctx, _) => { can = ctx.CanExchangeToken; return Task.CompletedTask; });
+        await using var host = await StartAsync(agent, new RecordingExchanger(), bearerScheme);
+        var options = Bearer(header);
+        if (tokenSub is not null) options.Headers["X-Token-Sub"] = tokenSub;
+        await host.Client(binding).SendMessageAsync(Message.FromUser("hi"), options: options);
+        await host.WaitIdleAsync();
+        return can;
+    }
+
+    [Theory, MemberData(nameof(Bindings))]
+    public async Task A_token_no_bearer_scheme_validated_is_not_kept(string binding)
+    {
+        // The caller is authenticated by another scheme (like an API key); nothing checked the Authorization header.
+        Assert.False(await CanExchangeAsync(binding, bearerScheme: false, "Bearer unchecked-token"));
+    }
+
+    [Theory, MemberData(nameof(Bindings))]
+    public async Task A_token_the_bearer_scheme_rejected_is_not_kept(string binding)
+    {
+        Assert.False(await CanExchangeAsync(binding, bearerScheme: true, "Bearer rejected-token"));
+    }
+
+    [Theory, MemberData(nameof(Bindings))]
+    public async Task A_valid_token_of_another_subject_is_not_kept(string binding)
+    {
+        // Alice is the caller; the token the bearer scheme validated is Bob's.
+        Assert.False(await CanExchangeAsync(binding, bearerScheme: true, "Bearer bobs-token", tokenSub: "bob"));
+        Assert.True(await CanExchangeAsync(binding, bearerScheme: true, "Bearer alices-token", tokenSub: "alice"));
+    }
 
     private static A2ARequestOptions Bearer(string value) =>
         new() { Headers = { ["Authorization"] = value } };
@@ -128,11 +168,15 @@ public class TokenExchangeServerTests
     public void Nothing_is_captured_for_two_Authorization_headers()
     {
         var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddAuthentication().AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, TestBearerHandler>(TestBearerHandler.SchemeName, null);
+        services.AddA2AServer().AddBearerAuthentication(TestBearerHandler.SchemeName);
         services.AddSingleton<ITenantResolver, RouteTenantResolver>();
         services.AddSingleton<IPrincipalResolver, DefaultPrincipalResolver>();
         services.AddSingleton<ITokenExchanger>(new RecordingExchanger());
         var http = new DefaultHttpContext { RequestServices = services.BuildServiceProvider() };
         http.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "alice")], "test"));
+        http.Request.Headers["X-Test-User"] = "alice";
         http.Request.Headers.Authorization = new StringValues(["Bearer aaa", "Bearer bbb"]);
         Assert.Null(HttpPlumbing.CreateCallContext(http, null).InboundBearerToken);
 

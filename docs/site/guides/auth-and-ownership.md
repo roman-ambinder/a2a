@@ -226,7 +226,7 @@ Read it with `GetActorChain()`. It returns `null` when there is no chain or the 
 
 ### The inbound token
 
-Agent code never gets the caller's token. `ServerCallContext.InboundBearerToken` can be read only inside `A2A.Server`. The server keeps the token only when an <xref:A2A.Delegation.ITokenExchanger> is registered, the caller is authenticated and the header is `Authorization: Bearer <token>`.
+Agent code never gets the caller's token. `ServerCallContext.InboundBearerToken` can be read only inside `A2A.Server`. The server keeps the token only when an <xref:A2A.Delegation.ITokenExchanger> is registered, the caller is authenticated, the header is `Authorization: Bearer <token>`, and a bearer scheme validated that token as the caller's: an `AddJwtBearer()` scheme, or the scheme you named in `AddBearerAuthentication` (or `AddCardAuthentication` for a bearer, OAuth 2.0 or OpenID Connect card scheme).
 
 - The token lives in memory for the agent run. It is not stored or logged. The run can outlive the HTTP request, and the token can expire before the run ends. A run recovered on another instance has no token.
 - To call the next agent, exchange the token and use the result. `ExchangeTokenAsync(audience, scopes)` on the agent context does this. The audience is required. `CanExchangeToken` tells you if it can run. When it is false, the call throws `InvalidOperationException`.
@@ -240,7 +240,7 @@ Agent code never gets the caller's token. `ServerCallContext.InboundBearerToken`
 
 The exchanger needs an HTTPS token endpoint (loopback may use HTTP) and reads at most 64 KiB of response. A refused exchange throws `TokenExchangeException`. Its message and its `Error` property (the RFC 6749 `error` code) never contain a token or the server's text.
 
-Warning: the server sends the caller's `Authorization: Bearer` value to the exchanger whenever any scheme authenticated the caller. Register an exchanger only when a Bearer handler validates that header on these endpoints. On a host that authenticates with cookies, API keys or mTLS, that header is not checked.
+A caller authenticated by another scheme (an API key, a cookie, mTLS) has no token to exchange, even when it sends an `Authorization: Bearer` header: nothing validated that header. Neither has a caller whose token the bearer scheme rejected, or whose token belongs to another user (its owner id differs from the caller's).
 
 ### Call the next agent
 

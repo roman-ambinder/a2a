@@ -231,6 +231,27 @@ public sealed class TestAuthHandler(IOptionsMonitor<AuthenticationSchemeOptions>
     }
 }
 
+/// <summary>
+///     A bearer scheme for tests: validates <c>Authorization: Bearer &lt;token&gt;</c> (a token starting with
+///     <c>rejected</c> fails), and the token's subject is the <c>X-Token-Sub</c> header, else <c>X-Test-User</c>.
+/// </summary>
+public sealed class TestBearerHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
+    : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+{
+    public const string SchemeName = "TestBearer";
+
+    protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+    {
+        var header = Request.Headers.Authorization.ToString();
+        if (!header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)) return Task.FromResult(AuthenticateResult.NoResult());
+        if (header[7..].Trim().StartsWith("rejected", StringComparison.Ordinal)) return Task.FromResult(AuthenticateResult.Fail("rejected"));
+        var sub = Request.Headers["X-Token-Sub"].ToString();
+        if (string.IsNullOrEmpty(sub)) sub = Request.Headers["X-Test-User"].ToString();
+        var identity = new ClaimsIdentity([new Claim("sub", sub)], SchemeName);
+        return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName)));
+    }
+}
+
 /// <summary>Records webhook calls.</summary>
 public sealed class RecordingHandler : HttpMessageHandler
 {

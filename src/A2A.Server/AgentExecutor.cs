@@ -168,7 +168,7 @@ public sealed class AgentRequestContext
 
     /// <summary>
     ///     True when <see cref="ExchangeTokenAsync" /> can run: a token exchanger is registered and the caller sent a bearer
-    ///     token.
+    ///     token that a bearer scheme validated as the caller's.
     /// </summary>
     public bool CanExchangeToken => TokenExchanger is not null && !string.IsNullOrEmpty(Call.InboundBearerToken);
 
