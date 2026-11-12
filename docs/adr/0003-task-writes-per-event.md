@@ -103,6 +103,28 @@ The task row would hold a snapshot taken every so often. A read would apply the 
 
 ## Action items
 
-1. [ ] Add `PostgresStreamingBenchmark` (Testcontainers Postgres). It covers a 1,000-chunk artifact, with and without batching, at three artifact sizes, and reports the bytes written per commit (`pg_stat_statements` or the parameter size) and the mean time per chunk.
-2. [ ] Decide from the numbers. If a long chunk stream costs more than its batched equivalent by a factor worth fixing, design Option C in its own short spec: the table, the migration, and a round-trip test.
+1. [x] Add `PostgresStreamingBenchmark` (Testcontainers Postgres). It covers a 1,000-chunk artifact, with and without batching, at three artifact sizes, and reports the bytes written per commit (`pg_stat_statements` or the parameter size) and the mean time per chunk.
+
+   Done as `tests/A2A.Benchmarks.Postgres`, a console measurement outside the CI benchmark gate. It measures the WAL written (`pg_current_wal_insert_lsn` before and after) rather than the parameter size, so the event log, TOAST and indexes are counted too. One run on 2026-11-12, `postgres:16-alpine` in Docker on the session's container:
+
+   | Chunks | Chunk bytes | Batch commits | Commits | Total ms | ms / chunk | WAL MB | WAL / payload |
+   |---:|---:|---|---:|---:|---:|---:|---:|
+   | 1000 | 100 | on | 21 | 1527 | 1.53 | 1.9 | 19.9 |
+   | 1000 | 100 | off | 1003 | 5609 | 5.61 | 60.7 | 636.9 |
+   | 1000 | 1000 | on | 21 | 1662 | 1.66 | 12.8 | 13.4 |
+   | 1000 | 1000 | off | 1003 | 20029 | 20.03 | 534.5 | 560.4 |
+   | 250 | 10000 | on | 9 | 855 | 3.42 | 14.6 | 6.1 |
+   | 250 | 10000 | off | 253 | 10870 | 43.48 | 334.7 | 140.4 |
+
+   What it shows:
+   - **With batching, the cost is small.** 1,000 chunks took 21 commits and wrote 13–20 times the payload in WAL.
+   - **Without batching, it is quadratic.**
+     - The same 1,000 chunks of 1,000 bytes wrote 534.5 MB of WAL for 1 MB of payload (560 times).
+     - It took 20 ms per chunk, against 1.7 ms with batching.
+     - The time per chunk grows with the artifact: 5.6 ms at 100 bytes, 20 ms at 1,000 bytes, 43 ms at 10,000 bytes.
+   - **"Off" is also what a slow producer gets with batching on.** Batching only merges chunks that queue up behind a commit. An agent that streams tokens slower than a commit takes, for example a model at tens of tokens per second, gets one commit per chunk. So its long artifacts pay the "off" row. The latency fits between tokens, but the WAL, replication and storage load stays quadratic.
+   - **Limits of this measurement:**
+     - It is a single run on one machine, so the times are rough. The WAL figures depend less on timing.
+     - Real model text compresses differently from these random letters, and TOAST compresses the `task` column.
+2. [ ] Decide from the numbers (owner). The "off" row is the slow-producer case, and it costs 140–640 times the payload in WAL, against 6–20 times with batching. That is the factor Option C would remove for appends. If a long chunk stream costs more than its batched equivalent by a factor worth fixing, design Option C in its own short spec: the table, the migration, and a round-trip test.
 3. [ ] Until then, say in `docs/site/guides/durable-stores.md` that each commit rewrites the whole task, and that long artifacts should be offloaded.
