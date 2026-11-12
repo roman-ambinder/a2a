@@ -88,7 +88,7 @@ v0.3 has no version negotiation for the card, and v0.3 clients send no header. S
 
 `capabilities.pushNotifications` is shared by both versions. The blended card keeps the v1.0 value. So a host with v1.0 push still says `true`, and a v0.3 client that tries push gets an error (see below).
 
-The extended card (`/v1/card` and `agent/getAuthenticatedExtendedCard`) is a pure v0.3 card, not blended. It says `pushNotifications: false`. `/v1/card` returns the JSON-RPC dialect of the card, as v0.3 servers do. If your extended card lists no interfaces, they are taken from the public card.
+The extended card (`/v1/card` and `agent/getAuthenticatedExtendedCard`) is a pure v0.3 card, not blended. It says `pushNotifications: false`. It has no `signatures`: a signature of the v1.0 extended card covers the v1.0 content, not the v0.3 document served, so it could never verify. The drop is counted with the `field` tag `card.signatures`. `/v1/card` returns the JSON-RPC dialect of the card, as v0.3 servers do. If your extended card lists no interfaces, they are taken from the public card.
 
 ### Card signing
 
@@ -175,6 +175,7 @@ v0.3 cannot carry everything v1.0 can. Each drop is counted (see [Metrics](#metr
 | OAuth `pkceRequired` | v1.0 to v0.3 card | Dropped | `oauth.pkceRequired` |
 | `capabilities.stateTransitionHistory` | v0.3 to v1.0 card | Dropped | `capabilities.stateTransitionHistory` |
 | `signatures` | v0.3 to v1.0 card | Dropped, so the card reads as unsigned | `card.signatures` |
+| `signatures` | v1.0 to v0.3 extended card | Dropped: they cover the v1.0 content, not the v0.3 card | `card.signatures` |
 
 Card security is not lost. All five scheme types, OAuth flows, scopes, `oauth2MetadataUrl` and the `security` lists of the card and of each skill cross over, in both directions. A scheme left with no flow stays listed with empty `flows`, and its `security` entry stays. A v0.3 client then cannot authenticate and fails. It never reads as anonymous access. The one exception is a v1.0 scheme of an unknown type (from a newer protocol version). It cannot be written as v0.3, so it is left out of the v0.3 members and a warning is logged.
 

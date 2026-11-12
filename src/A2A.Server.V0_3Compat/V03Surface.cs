@@ -611,6 +611,8 @@ internal sealed partial class V03Surface
         if (!V03CardCodec.TryToV03(v1, false, out var v03, out var problem))
             throw new A2AException(A2AErrorCode.Internal,
                 $"The extended Agent Card cannot be served to v0.3 clients: {problem}");
+        // The v1.0 signatures do not cover the v0.3 document, so TryToV03 leaves them out.
+        if (v1["signatures"] is JsonArray { Count: > 0 }) V03LossReporter.Drop("card.signatures");
         return v03;
     }
 

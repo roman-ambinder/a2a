@@ -57,8 +57,22 @@ public interface IA2AClient
 /// <summary>Settings shared by all transports.</summary>
 public sealed class A2AClientOptions
 {
-    /// <summary>Sent as the A2A-Version header on every request.</summary>
+    /// <summary>
+    ///     The newest protocol version (Major.Minor) this client speaks, sent as the A2A-Version header. A client made by
+    ///     <see cref="A2AClientFactory" /> from an Agent Card selects only interfaces of this major version and no newer
+    ///     minor, and then sends the selected interface's version: a 1.0 client never asks a 1.1 interface for 1.1, and a 1.1
+    ///     client uses a 1.0 interface with 1.0 unless <see cref="RequireExactProtocolVersion" /> is set. Default
+    ///     <see cref="A2AProtocol.Version" />.
+    /// </summary>
     public string ProtocolVersion { get; set; } = A2AProtocol.Version;
+
+    /// <summary>
+    ///     When true, <see cref="A2AClientFactory" /> selects only interfaces whose version (Major.Minor) equals
+    ///     <see cref="ProtocolVersion" />, so a client that needs the features of a newer minor version never falls back to an
+    ///     older one (spec §3.6.3). A card without such an interface fails with "No supported interface". Default false: an
+    ///     interface of an older minor version of the same major is also used.
+    /// </summary>
+    public bool RequireExactProtocolVersion { get; set; }
 
     /// <summary>
     ///     When true, the client refuses to register a webhook URL that is not <c>https</c> (spec §13.2: clients SHOULD use
@@ -236,6 +250,7 @@ public sealed class A2AClientOptions
         return new A2AClientOptions
         {
             ProtocolVersion = ProtocolVersion,
+            RequireExactProtocolVersion = RequireExactProtocolVersion,
             RequireHttpsWebhooks = RequireHttpsWebhooks,
             Extensions = new List<string>(Extensions),
             Tenant = Tenant,

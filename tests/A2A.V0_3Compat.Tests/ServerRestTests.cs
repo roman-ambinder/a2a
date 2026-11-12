@@ -187,6 +187,26 @@ public class ServerRestTests
         Assert.False(card["capabilities"]!["pushNotifications"]!.GetValue<bool>());
     }
 
+    [Fact]
+    public async Task Card_route_leaves_out_v1_signatures()
+    {
+        await using var host = await V03Host.StartAsync(configure: o =>
+        {
+            var inner = o.ExtendedAgentCardProvider!;
+            o.ExtendedAgentCardProvider = async (call, card, ct) =>
+            {
+                var extended = await inner(call, card, ct);
+                extended!.Signatures = [new AgentCardSignature { Protected = "eyJhbGciOiJFUzI1NiJ9", Signature = "c2ln" }];
+                return extended;
+            };
+        });
+        var (response, text) = await SendAsync(host.Http("bob"), HttpMethod.Get, "/a2a/v1/card");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var card = JsonNode.Parse(text)!;
+        Assert.Equal("0.3.0", card["protocolVersion"]!.GetValue<string>());
+        Assert.Null(card["signatures"]);
+    }
+
     [Theory]
     [InlineData("POST", "/a2a/v1/tasks/t1/pushNotificationConfigs")]
     [InlineData("GET", "/a2a/v1/tasks/t1/pushNotificationConfigs")]

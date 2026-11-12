@@ -6,6 +6,18 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ### Protocol and bindings
 
+- **Behavior change.** The client asks only for protocol versions it speaks (spec §3.6.2, §3.6.3). `A2AClientFactory`
+  selects, in the card's order, the first interface of the same major version and no newer minor than
+  `A2AClientOptions.ProtocolVersion`, and sends that interface's version. Before, it took any interface of the same
+  major and sent its version, so a default 1.0 client called a card that lists 1.1 first (this SDK's server after
+  `EnableProtocolV11()`) with `A2A-Version: 1.1`, and a `1.7` interface with `1.7`. A card whose only interfaces are of a
+  newer minor version now fails with "No supported interface". New `A2AClientOptions.RequireExactProtocolVersion`
+  (default false) selects only interfaces of the client's own minor version, with no fallback to an older one.
+- A2A 1.1 over HTTP+JSON: the server reads `lastSeenGeneration` from the JSON body of `POST /tasks/{id}:subscribe` (it
+  read only the query string, so the SDK client's resume got a `Task` snapshot first), and the client sends
+  `timelineLength` and `currentGeneration` on GetTask, `timelineLength` on ListTasks and `lastSeenGeneration` on a GET
+  subscribe in the query string (they were dropped).
+
 - Interface fallback (spec §5.2), opt-in with `A2AClientOptions.InterfaceFallback` (default false). A client made by
   `A2AClientFactory` moves to the next interface of the card (same tenant, card order) when a call fails before any
   request reached the agent: a connection, name lookup, proxy tunnel or TLS handshake failure, after the transport's
@@ -15,6 +27,10 @@ All notable changes to this project are listed here. Versions follow [Semantic V
   (tags `from`, `to`).
 
 ### Security
+
+- v0.3 compat: the pure v0.3 extended card (`/v1/card`, `agent/getAuthenticatedExtendedCard`) no longer carries the
+  v1.0 card's `signatures`. They cover the v1.0 content, not the v0.3 document served, so a v0.3 client that checks
+  signatures rejected the card. The drop is counted as `card.signatures` on `a2a.compat.v0_3.dropped`.
 
 - Opt-in anomaly monitoring (spec §13.4): `A2AServerOptions.Anomalies` (`A2AAnomalyOptions`: `Enabled`, default false;
   `TaskCreationsPerMinute`, default 60; `CancellationsPerMinute`, default 20; `MaxTrackedCallers`, default 10 000). A

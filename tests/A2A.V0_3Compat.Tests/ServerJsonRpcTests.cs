@@ -139,6 +139,26 @@ public class ServerJsonRpcTests
         Assert.Equal("[{\"bearer\":[]}]", card["security"]!.ToJsonString());
     }
 
+    [Fact]
+    public async Task Extended_card_leaves_out_v1_signatures_that_do_not_cover_the_v03_document()
+    {
+        // A JWS over the v1.0 extended card cannot verify the v0.3 document served, so a verifying v0.3 client would reject it.
+        await using var host = await V03Host.StartAsync(configure: o =>
+        {
+            var inner = o.ExtendedAgentCardProvider!;
+            o.ExtendedAgentCardProvider = async (call, card, ct) =>
+            {
+                var extended = await inner(call, card, ct);
+                extended!.Signatures = [new AgentCardSignature { Protected = "eyJhbGciOiJFUzI1NiJ9", Signature = "c2ln" }];
+                return extended;
+            };
+        });
+        var (_, body) = await V03Host.RpcAsync(host.Http("bob"), "agent/getAuthenticatedExtendedCard", null);
+        var card = body["result"]!;
+        Assert.Equal("Extended card for bob", card["description"]!.GetValue<string>());
+        Assert.Null(card["signatures"]);
+    }
+
     [Theory]
     [InlineData("tasks/pushNotificationConfig/set")]
     [InlineData("tasks/pushNotificationConfig/get")]

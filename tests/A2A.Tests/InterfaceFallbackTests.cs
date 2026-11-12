@@ -120,11 +120,12 @@ public sealed class InterfaceFallbackTests
         new() { Url = $"http://localhost/{binding}", ProtocolBinding = binding, ProtocolVersion = version, Tenant = tenant };
 
     private static (A2AClient Client, FakeFactory[] Factories) Make(bool fallback, FakeTransport[] transports,
-        AgentInterface[]? interfaces = null)
+        AgentInterface[]? interfaces = null, string protocolVersion = "1.0")
     {
         var factories = transports.Select(t => new FakeFactory(t)).ToArray();
         var options = new A2AClientOptions
         {
+            ProtocolVersion = protocolVersion,
             InterfaceFallback = fallback,
             MaxRetries = 0,
             EndpointPolicy = AgentEndpointPolicies.AllowAll,
@@ -281,7 +282,8 @@ public sealed class InterfaceFallbackTests
         var a = new FakeTransport("a").FailAlways(Unsent);
         var b = new FakeTransport("b");
         var c = new FakeTransport("c");
-        var (client, _) = Make(true, [a, b, c], [Itf("a", "t-1"), Itf("b", "t-2"), Itf("c", "t-1", "1.1")]);
+        // A 1.1 client: it speaks the 1.0 interface a with 1.0 and the 1.1 interface c with 1.1.
+        var (client, _) = Make(true, [a, b, c], [Itf("a", "t-1"), Itf("b", "t-2"), Itf("c", "t-1", "1.1")], "1.1");
 
         Assert.Equal("c", (await client.GetTaskAsync("t1")).ContextId);
         Assert.Equal(0, b.Calls);

@@ -108,7 +108,8 @@ internal static class V03CardCodec
 
         if (v1Capabilities?["extendedAgentCard"] is { } extended)
             v03["supportsAuthenticatedExtendedCard"] = extended.DeepClone();
-        if (v1["signatures"] is JsonArray signatures) v03["signatures"] = signatures.DeepClone();
+        // No signatures: a JWS of the v1.0 card covers the v1.0 content, not this v0.3 document, so it could never verify and a
+        // v0.3 client that checks signatures would reject the card. The blended card keeps the v1.0 card's own signatures.
         return true;
     }
 
