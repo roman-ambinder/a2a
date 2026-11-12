@@ -135,7 +135,7 @@ public class ClientResumeTests
     {
         var options = new A2AClientOptions { TimeProvider = time ?? new FakeTimeProvider() };
         var http = new HttpClient(handler);
-        IA2AClient transport = binding == ProtocolBindings.JsonRpc
+        IA2ATransport transport = binding == ProtocolBindings.JsonRpc
             ? new JsonRpcTransport(http, new Uri(Endpoint), options)
             : new HttpJsonTransport(http, new Uri(Endpoint), options);
         return new A2AClient(transport, options);
@@ -608,7 +608,7 @@ public class ClientResumeTests
         Assert.Equal(6, handler.Calls.Count);
     }
 
-    private sealed class ThirdPartyTransport : IA2AClient, IResumableTransport
+    private sealed class ThirdPartyTransport : IA2ATransport, IResumableTransport
     {
         public ConcurrentQueue<string?> LastEventIds { get; } = new();
 
@@ -643,7 +643,7 @@ public class ClientResumeTests
     {
         public string ProtocolBinding => "X-THIRD-PARTY";
         public bool CanCreate(AgentInterface agentInterface) => true;
-        public IA2AClient Create(AgentInterface agentInterface, HttpClient httpClient, A2AClientOptions options) => transport;
+        public IA2ATransport Create(AgentInterface agentInterface, HttpClient httpClient, A2AClientOptions options) => transport;
     }
 
     [Fact]

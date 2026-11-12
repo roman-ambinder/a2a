@@ -15,7 +15,7 @@ using ModelContextProtocol.Server;
 namespace A2A.Mcp.Tests;
 
 /// <summary>An <see cref="IA2AClient"/> whose answers the test scripts.</summary>
-public sealed class FakeTransport : IA2AClient
+public sealed class FakeTransport : IA2ATransport
 {
     public Func<SendMessageRequest, CancellationToken, Task<SendMessageResponse>> Send { get; set; } = (_, _) => throw new NotSupportedException();
     public Func<GetTaskRequest, CancellationToken, Task<AgentTask>> Get { get; set; } = (_, _) => throw new NotSupportedException();
@@ -175,9 +175,8 @@ public sealed class AgentHost : IAsyncDisposable
         var card = Cards.With();
         card.Skills = skills.ToList();
         builder.Services.AddA2A(a => a.AddAgentCard(card).AddMcpToolAgent(configure, serviceKey))
-            .Configure<A2AServerOptions>(o => o.AllowAnonymous = true);
+            .Configure(o => o.AllowAnonymous = true);
         var app = builder.Build();
-        app.UseA2A();
         app.UseAuthorization();
         app.MapA2A("/a2a");
         await app.StartAsync();

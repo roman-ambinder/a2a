@@ -30,7 +30,6 @@ var card = new AgentCard
     Name = "Math Agent",
     Description = "A tiny rule-based Agent Framework agent hosted with A2A.Extensions.AgentFramework.",
     Version = "1.0.0",
-    Capabilities = new AgentCapabilities { Streaming = true },
     DefaultInputModes = ["text/plain"],
     DefaultOutputModes = ["text/plain"],
     Skills = [new AgentSkill { Id = "math", Name = "Math", Description = "Adds and multiplies", Tags = ["math"] }]
@@ -45,10 +44,9 @@ builder.Services.AddA2A(a => a
             o.UseContextMemory = true; // a new task in the same context sees the earlier ones
             o.StreamChunkSize = 16;
         }))
-    .Configure<A2AServerOptions>(o => o.AllowAnonymous = true);
+    .Configure(o => o.AllowAnonymous = true);
 
 var app = builder.Build();
-app.UseA2A();
 app.MapA2A("/a2a");
 await app.StartAsync();
 

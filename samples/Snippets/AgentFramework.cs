@@ -19,7 +19,6 @@ internal static class Snippets
         Name = "Support Agent",
         Description = "Answers support questions.",
         Version = "1.0.0",
-        Capabilities = new AgentCapabilities { Streaming = true },
         DefaultInputModes = ["text/plain"],
         DefaultOutputModes = ["text/plain"],
         Skills = [new AgentSkill { Id = "support", Name = "Support", Description = "Answers questions", Tags = ["support"] }],
@@ -28,10 +27,9 @@ internal static class Snippets
     public static void Host(IServiceCollection services, AIAgent agent)
     {
         #region Host
-        services.AddSingleton(agent);   // any Agent Framework agent, for example a ChatClientAgent
         services.AddA2A(a => a
             .AddAgentCard(Card)
-            .AddAIAgent());
+            .AddAIAgent(agent));   // any Agent Framework agent, for example a ChatClientAgent
         #endregion
     }
 
@@ -57,8 +55,8 @@ internal static class Snippets
             {
                 o.SessionMode = AgentSessionMode.Stored;
                 o.ToolApprovals = ToolApprovalMode.Bound;
-            }));
-        services.AddA2ARetention();   // deletes a context's session with the context
+            })
+            .AddRetention());   // deletes a context's session with the context
         #endregion
     }
 

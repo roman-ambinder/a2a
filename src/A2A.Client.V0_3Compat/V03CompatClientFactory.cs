@@ -96,7 +96,7 @@ public static class V03CompatClientFactory
         V03LossReporter.LegacyAgent(card.Name, selected.Url);
         var v03Options = V03ClientSupport.CopyForV03(options, selected.Tenant);
         EnsureAllowedNoDns(card, v03Options);
-        IA2AClient transport = selected.ProtocolBinding switch
+        IA2ATransport transport = selected.ProtocolBinding switch
         {
             ProtocolBindings.JsonRpc => new V03JsonRpcTransport(httpClient, new Uri(selected.Url, UriKind.Absolute),
                 v03Options),

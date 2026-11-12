@@ -85,7 +85,7 @@ internal static class RemoteAgentSupport
     ///     the real error), unless <paramref name="callerToken" /> was cancelled. <paramref name="token" /> is the token used
     ///     for the call.
     /// </summary>
-    internal static async Task<KnownTask> LookupKnownAsync(A2AClient client, string? taskId, A2ARequestOptions? options,
+    internal static async Task<KnownTask> LookupKnownAsync(IA2AClient client, string? taskId, A2ARequestOptions? options,
         CancellationToken token, CancellationToken callerToken)
     {
         if (string.IsNullOrEmpty(taskId)) return KnownTask.Empty;

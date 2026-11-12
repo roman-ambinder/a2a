@@ -44,7 +44,7 @@ if (args[0] == "expose")
 
     // The A2A agent. AllowAnonymous is fine for a sample that only listens on loopback.
     builder.Services.AddA2A(a => a.AddAgentExecutor<TextAgent>().AddAgentCard(card))
-        .Configure<A2AServerOptions>(o => o.AllowAnonymous = true);
+        .Configure(o => o.AllowAnonymous = true);
 
     // The bridge. The A2A client has its own credentials (none here). Nothing from the MCP caller is forwarded.
     var options = new A2AClientOptions();
@@ -89,12 +89,11 @@ else
     builder.Services.AddA2A(a => a
             .AddAgentCard(card)
             .AddMcpToolAgent(o => o.AllowTool("add")))
-        .Configure<A2AServerOptions>(o => o.AllowAnonymous = true);
+        .Configure(o => o.AllowAnonymous = true);
     builder.Services.AddSingleton(holder);
 }
 
 var app = builder.Build();
-app.UseA2A();
 app.MapMcp("/mcp");
 app.MapA2A("/a2a");
 

@@ -1,3 +1,4 @@
+using A2A.Client;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -7,6 +8,8 @@ using A2A.Server.AspNetCore;
 using A2A.Server.Storage;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -670,23 +673,84 @@ public class LimitsTests
     [MemberData(nameof(Bindings))]
     public async Task Host_supplied_a2a_policy_replaces_the_default(string binding)
     {
-        await using var host = await TestAgentHost.StartAsync(services: s => s.AddRateLimiter(o =>
-        {
-            o.RejectionStatusCode = 418; // default policy would answer 429 and allow 20 requests
-            o.AddPolicy("a2a", _ => RateLimitPartition.GetFixedWindowLimiter("all", __ =>
-                new FixedWindowRateLimiterOptions { PermitLimit = 1, Window = TimeSpan.FromHours(1), QueueLimit = 0 }));
-        }));
+        // The default policy would allow 20 requests; this one allows one, and answers its rejection itself.
+        await using var host = await TestAgentHost.StartAsync(services: s =>
+            s.AddKeyedSingleton<IRateLimiterPolicy<string>, OnePerHourPolicy>(A2ARateLimitingExtensions.PolicyName));
         Assert.NotEqual((HttpStatusCode)418, (await Send(host, GetTaskRequest(binding))).Status);
         using var client = host.Http();
         using var resp = await client.SendAsync(GetTaskRequest(binding));
         Assert.Equal((HttpStatusCode)418, resp.StatusCode);
     }
 
+    private sealed class OnePerHourPolicy : IRateLimiterPolicy<string>
+    {
+        public Func<OnRejectedContext, CancellationToken, ValueTask>? OnRejected => (context, _) =>
+        {
+            context.HttpContext.Response.StatusCode = 418;
+            return ValueTask.CompletedTask;
+        };
+
+        public RateLimitPartition<string> GetPartition(HttpContext httpContext) =>
+            RateLimitPartition.GetFixedWindowLimiter("all", _ =>
+                new FixedWindowRateLimiterOptions { PermitLimit = 1, Window = TimeSpan.FromHours(1), QueueLimit = 0 });
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Requests_that_fail_authentication_are_rate_limited_too(string binding)
+    {
+        // The limit is taken before the authorization decision, so guessing credentials costs tokens like any call.
+        await using var host = await TestAgentHost.StartAsync(services: s => s.AddA2ARateLimiting(o => { o.TokenLimit = 2; o.TokensPerPeriod = 1; o.ReplenishmentPeriod = TimeSpan.FromHours(1); }));
+        HttpRequestMessage Anonymous()
+        {
+            var req = GetTaskRequest(binding);
+            req.Headers.Remove("X-Test-User");
+            return req;
+        }
+
+        using var client = host.Http();
+        for (var i = 0; i < 2; i++)
+        {
+            using var denied = await client.SendAsync(Anonymous());
+            Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
+        }
+
+        using var limited = await client.SendAsync(Anonymous());
+        Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
+    }
+
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Anonymous_endpoints_are_rate_limited_once_per_request(string binding)
+    {
+        // No authorization policy: the endpoint takes the limit itself, and only once.
+        await using var host = await TestAgentHost.StartAsync(o => o.AllowAnonymous = true, requireAuth: false,
+            services: s => s.AddA2ARateLimiting(o => { o.TokenLimit = 2; o.TokensPerPeriod = 1; o.ReplenishmentPeriod = TimeSpan.FromHours(1); }));
+        for (var i = 0; i < 2; i++)
+            Assert.NotEqual(HttpStatusCode.TooManyRequests, (await Send(host, GetTaskRequest(binding))).Status);
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await Send(host, GetTaskRequest(binding))).Status);
+    }
+
+    [Fact]
+    public async Task Host_rate_limiter_middleware_does_not_count_a2a_requests_twice()
+    {
+        await using var host = await TestAgentHost.StartAsync(
+            services: s =>
+            {
+                s.AddRateLimiter(_ => { });
+                s.AddA2ARateLimiting(o => { o.TokenLimit = 2; o.TokensPerPeriod = 1; o.ReplenishmentPeriod = TimeSpan.FromHours(1); });
+            },
+            configurePipeline: app => app.UseRateLimiter());
+        for (var i = 0; i < 2; i++)
+            Assert.NotEqual(HttpStatusCode.TooManyRequests, (await Send(host, GetTaskRequest(ProtocolBindings.JsonRpc))).Status);
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await Send(host, GetTaskRequest(ProtocolBindings.JsonRpc))).Status);
+    }
+
     [Theory]
     [MemberData(nameof(Bindings))]
     public async Task Rate_limit_can_be_disabled(string binding)
     {
-        await using var host = await TestAgentHost.StartAsync(useA2A: false,
+        await using var host = await TestAgentHost.StartAsync(
             services: s => s.AddA2ARateLimiting(o => { o.Enabled = false; o.TokenLimit = 1; o.TokensPerPeriod = 1; o.ReplenishmentPeriod = TimeSpan.FromHours(1); }));
         for (var i = 0; i < 5; i++)
             Assert.NotEqual(HttpStatusCode.TooManyRequests, (await Send(host, GetTaskRequest(binding))).Status);
@@ -704,25 +768,10 @@ public class LimitsTests
         Assert.Equal(TimeSpan.FromSeconds(3), resp.Headers.RetryAfter?.Delta);
     }
 
-    // ---- startup check for the rate limiter middleware ----
+    // ---- no middleware needed ----
 
     [Fact]
-    public async Task Startup_fails_without_the_rate_limiter_middleware()
-    {
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => TestAgentHost.StartAsync(useA2A: false));
-        Assert.Equal("Call app.UseA2A() before app.UseAuthorization(), or set A2ARateLimitOptions.Enabled = false (services.AddA2ARateLimiting(o => o.Enabled = false)).", ex.Message);
-    }
-
-    [Fact]
-    public async Task Startup_succeeds_without_the_middleware_when_rate_limiting_is_disabled()
-    {
-        await using var host = await TestAgentHost.StartAsync(useA2A: false, services: s => s.AddA2ARateLimiting(o => o.Enabled = false));
-    }
-
-    [Theory]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    public async Task Startup_style_hosting_checks_the_rate_limiter_after_start(bool useA2A, bool expectStopped)
+    public async Task Startup_style_hosting_rate_limits_without_any_middleware()
     {
         using var host = new HostBuilder().ConfigureWebHost(web => web
             .UseTestServer()
@@ -734,18 +783,21 @@ public class LimitsTests
                 s.AddRouting();
                 s.AddA2AServer(o => o.AgentCard = TestAgentHost.DefaultCard()).AddAgentExecutor<ScenarioAgent>();
                 s.AddA2AServerAspNetCore();
+                s.AddA2ARateLimiting(o => { o.TokenLimit = 1; o.TokensPerPeriod = 1; o.ReplenishmentPeriod = TimeSpan.FromHours(1); });
             })
             .Configure(app =>
             {
                 app.UseRouting();
                 app.UseAuthentication();
-                if (useA2A) app.UseA2A();
                 app.UseAuthorization();
                 app.UseEndpoints(e => e.MapA2A("/a2a").RequireAuthorization());
             })).Build();
         await host.StartAsync();
-        var lifetime = host.Services.GetRequiredService<IHostApplicationLifetime>();
-        Assert.Equal(expectStopped, lifetime.ApplicationStopping.IsCancellationRequested);
+        using var client = host.GetTestClient();
+        using var first = await client.SendAsync(GetTaskRequest(ProtocolBindings.HttpJson));
+        Assert.NotEqual(HttpStatusCode.TooManyRequests, first.StatusCode);
+        using var second = await client.SendAsync(GetTaskRequest(ProtocolBindings.HttpJson));
+        Assert.Equal(HttpStatusCode.TooManyRequests, second.StatusCode);
         await host.StopAsync();
     }
 }

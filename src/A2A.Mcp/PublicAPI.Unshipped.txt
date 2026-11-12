@@ -1,1 +1,3 @@
 #nullable enable
+static A2A.Mcp.A2AClientMcpExtensions.AsMcpTools(this A2A.Client.IA2AClient! client, A2A.Mcp.A2AMcpToolOptions? options = null, A2A.AgentCard? card = null) -> System.Collections.Generic.IReadOnlyList<ModelContextProtocol.Server.McpServerTool!>!
+*REMOVED*static A2A.Mcp.A2AClientMcpExtensions.AsMcpTools(this A2A.Client.A2AClient! client, A2A.Mcp.A2AMcpToolOptions? options = null, A2A.AgentCard? card = null) -> System.Collections.Generic.IReadOnlyList<ModelContextProtocol.Server.McpServerTool!>!

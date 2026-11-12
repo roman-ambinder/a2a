@@ -36,7 +36,6 @@ builder.Services.AddA2AServer(o =>
                 new AgentInterface { Url = publicUrl, ProtocolBinding = ProtocolBindings.JsonRpc },
                 new AgentInterface { Url = publicUrl, ProtocolBinding = ProtocolBindings.HttpJson }
             ],
-            Capabilities = new AgentCapabilities { Streaming = true },
             DefaultInputModes = ["text/plain"],
             DefaultOutputModes = ["text/plain"],
             Skills = [new AgentSkill { Id = "slow", Name = "Slow task", Description = "Counts to 30", Tags = ["demo"] }]
@@ -44,9 +43,8 @@ builder.Services.AddA2AServer(o =>
     }).AddAgentExecutor<SlowAgent>()
     .AddApiKeyAuthentication(o => o.Add("demo-client", apiKeyHash)) // every caller with the key is "demo-client"
     .AddPostgresStores(postgres) // tasks, event log, push configs, push outbox, idempotency
-    .AddRedisEventBus(redis); // live events and cancel requests across instances (also the execution coordinator)
-builder.Services
-    .AddA2ARetention(); // opt-in: purges, interrupted-state timeout and recovery of tasks whose instance died
+    .AddRedisEventBus(redis) // live events and cancel requests across instances (also the execution coordinator)
+    .AddRetention(); // opt-in: purges, interrupted-state timeout and recovery of tasks whose instance died
 builder.Services.AddA2AServerAspNetCore();
 
 var app = builder.Build();
@@ -57,7 +55,6 @@ app.Use(async (http, next) =>
     await next();
 });
 app.UseAuthentication();
-app.UseA2A();
 app.UseAuthorization();
 app.MapAgentCard();
 app.MapA2A(); // the API key protects the A2A endpoints
@@ -81,6 +78,6 @@ internal sealed class SlowAgent(InstanceName instance) : IAgentExecutor
                 append: i > 1, lastChunk: i == 30, cancellationToken: cancellationToken);
         }
 
-        await updater.CompleteAsync(cancellationToken: cancellationToken);
+        await updater.CompleteAsync(cancellationToken);
     }
 }

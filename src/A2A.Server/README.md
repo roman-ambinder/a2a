@@ -8,8 +8,8 @@ store or executor; to serve an agent over HTTP, add `RomanAmbinder.A2A.Server.As
 services.AddA2AServer(o => o.AgentCard = card).AddAgentExecutor<MyAgent>();
 ```
 
-Retention is **opt-in**: without `services.AddA2ARetention()` nothing is purged, `InterruptedTimeout` does nothing and
-dead executions are not recovered. `services.AddA2ARetention()` adds a background sweep (one instance at a time) that
+Retention is **opt-in**: without `AddRetention()` on the A2A builder nothing is purged, `InterruptedTimeout` does nothing and
+dead executions are not recovered. `AddRetention()` on the A2A builder adds a background sweep (one instance at a time) that
 deletes terminal tasks after `TaskRetention` (7 days) with their events, push configs and deliveries, removes orphan
 contexts, cancels tasks waiting for input longer than `InterruptedTimeout` (24 hours), and fails tasks whose execution
 died with its instance. `A2ATaskAdmin.DeleteTaskAsync` deletes one task the same way.

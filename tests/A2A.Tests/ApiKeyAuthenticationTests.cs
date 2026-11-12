@@ -88,7 +88,6 @@ public class ApiKeyAuthenticationTests
         else builder.Services.AddA2A(configuration, Configure);
         var app = builder.Build();
         app.UseAuthentication();
-        app.UseA2A();
         app.UseAuthorization();
         if (map is null) app.MapA2A("/a2a"); // no RequireAuthorization: the API key protects it
         else map(app);
@@ -246,6 +245,23 @@ public class ApiKeyAuthenticationTests
         var client = await A2AClientFactory.CreateAsync(new Uri("http://localhost/"),
             [new A2A.Client.Credentials.ApiKeyCredentialProvider(Billing.Key)], app.GetTestServer().CreateHandler());
         Assert.Equal("hi there", await client.AskAsync("hello"));
+    }
+
+    [Fact]
+    public async Task ConnectAsync_sends_the_key_the_card_asks_for()
+    {
+        await using var app = await StartAsync(o => o.Add("billing", Billing.Hash),
+            services: s => s.ConfigureA2AHttp(h => h.PublicBaseUrl = new Uri("http://localhost")));
+        var agent = await A2A.Client.A2AClient.ConnectAsync(new Uri("http://localhost/"), o =>
+        {
+            o.Handler = app.GetTestServer().CreateHandler();
+            o.Credentials.Add(new A2A.Client.Credentials.ApiKeyCredentialProvider(Billing.Key));
+        });
+        Assert.Equal("hi there", await agent.AskAsync("hello"));
+
+        var withoutKey = await A2A.Client.A2AClient.ConnectAsync(new Uri("http://localhost/"),
+            o => o.Handler = app.GetTestServer().CreateHandler());
+        await Assert.ThrowsAsync<A2AException>(() => withoutKey.AskAsync("hello"));
     }
 
     private static List<string?> A2APolicies(WebApplication app) =>

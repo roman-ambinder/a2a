@@ -43,7 +43,7 @@ Or silence one place with `#pragma warning disable A2AEXP001`.
 
 ### A2AEXP001
 
-`SkillSelection`, `SkillSelectionMessageExtensions`, `A2AClient.SelectSkill` and `AgentRequestContext.RequestedSkillId`. See [Skill selection](skill-selection.md).
+`SkillSelection`, `SkillSelectionMessageExtensions`, `A2ARequestOptions.Skill` and `AgentRequestContext.RequestedSkillId`. See [Skill selection](skill-selection.md).
 
 Typed skills use the same ID: `TypedSkillExtension`, `A2AClient.CallSkillAsync`, `TypedSkillCallException`, and the public types of `A2A.Server.TypedSkills`. See [Typed skills](typed-skills.md).
 

@@ -102,17 +102,23 @@ public static class A2ACardAuthenticationExtensions
     }
 
     /// <summary>
-    ///     Puts <see cref="DefaultPolicyName" /> on the endpoints that have no authorization metadata once all their
-    ///     conventions ran, when a scheme is declared. Every <c>MapA2A*</c> method calls it.
+    ///     Puts the builder's caller policy on the endpoints that have no authorization metadata once all their conventions
+    ///     ran: <see cref="DefaultPolicyName" /> when a scheme is declared, and every policy named by
+    ///     <see cref="A2ACallerPolicyExtensions.RequirePolicy" />. Every <c>MapA2A*</c> method calls it.
     /// </summary>
     internal static void ApplyDefault<TBuilder>(IEndpointRouteBuilder endpoints, TBuilder builder)
         where TBuilder : IEndpointConventionBuilder
     {
-        if (!endpoints.ServiceProvider.GetServices<DefaultScheme>().Any()) return;
+        var services = endpoints.ServiceProvider;
+        var schemes = services.GetServices<DefaultScheme>().Any();
+        var policies = services.GetServices<A2ACallerPolicyExtensions.RequiredPolicy>().Select(p => p.Name)
+            .Distinct(StringComparer.Ordinal).ToArray();
+        if (!schemes && policies.Length == 0) return;
         builder.Finally(endpoint =>
         {
             if (endpoint.Metadata.Any(m => m is IAuthorizeData or IAllowAnonymous)) return;
-            endpoint.Metadata.Add(new AuthorizeAttribute(DefaultPolicyName));
+            if (schemes) endpoint.Metadata.Add(new AuthorizeAttribute(DefaultPolicyName));
+            foreach (var policy in policies) endpoint.Metadata.Add(new AuthorizeAttribute(policy));
         });
     }
 

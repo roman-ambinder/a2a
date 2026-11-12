@@ -43,7 +43,6 @@ public sealed class MyCards : TenantCardProvider
         [
             new AgentInterface { Url = $"https://agents.example.com/{tenant}/a2a", ProtocolBinding = ProtocolBindings.JsonRpc },
         ],
-        Capabilities = new AgentCapabilities { Streaming = true },
         DefaultInputModes = ["text/plain"],
         DefaultOutputModes = ["text/plain"],
         Skills = [new AgentSkill { Id = tenant, Name = tenant, Description = $"Answers {tenant} questions", Tags = [tenant] }],

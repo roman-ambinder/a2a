@@ -1,3 +1,4 @@
+using A2A.Server.AspNetCore;
 using A2A.Server;
 using A2A.Server.Retention;
 using A2A.Server.Storage;
@@ -11,14 +12,15 @@ public static class Samples
     public static void Register(IServiceCollection services)
     {
         #region Register
-        services.AddA2AServer(o => o.InterruptedTimeout = TimeSpan.FromHours(6));
-        services.AddA2ARetention(o =>
-        {
-            o.TaskRetention = TimeSpan.FromDays(30);
-            o.OrphanContextRetention = TimeSpan.FromDays(30);
-            o.SweepInterval = TimeSpan.FromMinutes(10);
-            o.BatchSize = 200;
-        });
+        services.AddA2A(a => a
+            .Configure(o => o.InterruptedTimeout = TimeSpan.FromHours(6))
+            .AddRetention(o =>
+            {
+                o.TaskRetention = TimeSpan.FromDays(30);
+                o.OrphanContextRetention = TimeSpan.FromDays(30);
+                o.SweepInterval = TimeSpan.FromMinutes(10);
+                o.BatchSize = 200;
+            }));
         #endregion
     }
 

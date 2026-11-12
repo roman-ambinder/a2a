@@ -80,7 +80,7 @@ internal static class Bench
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
         builder.Services.AddSingleton(new ChunkPlan(chunks, chunkBytes));
-        builder.Services.AddA2AServer(o =>
+        var a2a = builder.Services.AddA2AServer(o =>
         {
             o.AgentCard = card;
             o.AllowAnonymous = true;
@@ -97,10 +97,9 @@ internal static class Bench
             return batching ? new CountingBatchStore(inner, counter) : new CountingStore(inner, counter);
         }));
         builder.Services.AddA2AServerAspNetCore();
-        builder.Services.AddA2ARateLimiting(o => o.Enabled = false);
+        a2a.ConfigureRateLimiting(o => o.Enabled = false);
 
         await using var app = builder.Build();
-        app.UseA2A();
         app.MapA2A("/a2a");
         await app.StartAsync();
         var options = new A2AClientOptions();

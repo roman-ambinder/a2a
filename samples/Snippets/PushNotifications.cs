@@ -108,13 +108,13 @@ internal static class Snippets
         #endregion
     }
 
-    public static void Secrets(IServiceCollection services)
+    public static void Secrets(IServiceCollection services, A2AServerBuilder a)
     {
         #region DataProtection
         services.AddDataProtection()
             .SetApplicationName("my-agent")
             .PersistKeysToFileSystem(new DirectoryInfo("/var/keys/my-agent"));
-        services.AddA2ADataProtectionPushSecrets();
+        a.AddDataProtectionPushSecrets();   // a: the builder of AddA2A
         #endregion
     }
 

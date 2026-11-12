@@ -4,6 +4,69 @@ All notable changes to this project are listed here. Versions follow [Semantic V
 
 ## Unreleased
 
+### Server hosting (breaking)
+
+One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpler-sdk-surface-design.md`, phase 2.
+
+- **`UseA2A()` is removed.** The per-caller rate limit runs inside the A2A endpoints. For endpoints with an
+  authorization policy it is taken after authentication and before the authorization decision, so requests with wrong
+  credentials still use tokens. Endpoints that allow anonymous callers take it when they run. A request is counted
+  once. The limit no longer uses the ASP.NET Core rate limiter middleware: a host's own `UseRateLimiter()` does not
+  count A2A requests twice. To replace the policy, register a keyed `IRateLimiterPolicy<string>` under
+  `A2ARateLimitingExtensions.PolicyName` (it used to be a named `AddRateLimiter` policy). Analyzer rules A2A0001 and
+  A2A0003 and their code fix are removed.
+- **`AddA2A` returns the `A2AServerBuilder`**, and the configure lambda is optional. New on the builder:
+  `Configure(A2AServerOptions)`, `ConfigureHttp`, `ConfigureRateLimiting`, `AddRetention` and
+  `AddDataProtectionPushSecrets`. The `IServiceCollection` forms `ConfigureA2AHttp`, `AddA2ARateLimiting`,
+  `AddA2ARetention` and `AddA2ADataProtectionPushSecrets` are no longer public. `AddA2AServer` stays for hosts without
+  ASP.NET Core.
+- **Who may call is set on the builder.** `RequirePolicy(name)` puts an authorization policy on every A2A endpoint that
+  has none of its own, like the card schemes of `AddApiKeyAuthentication` and `AddBearerAuthentication`; the app
+  refuses to start when the policy is not registered. `A2AEndpointOptions.AuthorizationPolicy` is removed: use
+  `RequirePolicy`, or `RequireAuthorization(policy)` on the group.
+- **`UseDevelopmentDefaults()` is now `ConfigureForDevelopment()`.** It does nothing outside Development instead of
+  throwing, so it needs no environment check. Endpoints without authorization still stop the app there, and the error
+  says that `ConfigureForDevelopment()` had no effect.
+- **Shorter agents.** `AddAgentExecutor(ctx => "text")` and `AddAgentExecutor(async (ctx, ct) => "text")` make an agent
+  that answers with text (a direct reply, or an artifact and Completed for a task that waited for input).
+  `TaskUpdater.StartWorkAsync`, `CompleteAsync`, `FailAsync`, `RejectAsync` and `CancelAsync` take a lone
+  `CancellationToken`; `AddArtifactAsync(text, name, ct)` adds a text artifact.
+- **Shorter cards.** `AddAgentCard(name, description)`. The samples drop `Capabilities.Streaming = true`, which the
+  served card already defaults.
+
+### Client
+
+- One way to reach an agent by URL: `A2AClient.ConnectAsync(url, o => ...)`. It fetches and checks the card and sends
+  through a handler that keeps no cookies and follows no redirects. `A2AConnectOptions` holds `Credentials` (sent only
+  to the card's origin), `Card` (trust and pins), `Client` (retries, extensions, `UseGrpc()`) and an optional `Handler`.
+  `A2AClient.ResolvedCard` keeps the card's source, signature check and peer identity (also set by
+  `A2AClientFactory.CreateAsync`). The README, getting started and the credential guides use it;
+  `A2AClientFactory.CreateAsync(url, httpClient)` stays for an `HttpClient` you already have.
+- **Transports are no longer clients (breaking).** The 11 operations moved to `IA2ATransport`, which JSON-RPC,
+  HTTP+JSON, gRPC, the v0.3 transports and `IA2ATransportFactory.Create` use. `IA2AClient` extends it and adds
+  `AgentCard`; only `A2AClient` implements it, over a transport (`new A2AClient(IA2ATransport, ...)`). So the shortcuts
+  (`AskAsync`, `StartConversation`, ...) no longer compile on a raw transport, which skipped the client's checks.
+- **Shortcuts are extensions on `IA2AClient` (breaking for callers without `using A2A.Client`).** `SendMessageAsync(text
+  | message)`, `SendStreamingMessageAsync(message)`, `GetTaskAsync(id)`, `CancelTaskAsync(id)`, `SubscribeToTaskAsync(id)`,
+  `WaitForTaskAsync` and `ListAllTasksAsync` moved from `A2AClient` to `A2AClientExtensions`. `AsAIFunction`,
+  `AsChatClient`, `AsAIAgent` and `AsMcpTools` take any `IA2AClient` (`AsAIAgent` resumes a background stream with
+  `ObserveTaskAsync` when it gets an `A2AClient`, and subscribes once otherwise).
+- **`A2ARequestOptions.Skill` replaces `A2AClient.SelectSkill` (breaking, experimental `A2AEXP001`).** Set it on a send's
+  options; the client checks it against the card, writes `metadata["skillId"]` and requests the extension, without
+  changing your message or options. It works for every send, the text overload included.
+- **AI adapters.** `A2AModelAgentOptions` holds the reply, history and security settings shared by
+  `ChatClientAgentOptions` and `AIAgentExecutorOptions` (same names and defaults as before). `AddChatClientAgent(chatClient,
+  ...)` and `AddAIAgent(agent, ...)` take the model itself, so it need not be registered in DI first.
+- `BearerTokenCredentialProvider`: a bearer token from your own source, asked for on every request. There is no
+  fixed-token constructor on purpose.
+- Multi-turn without handling ids: `client.StartConversation()` returns an `A2AConversation`. `SendAsync` and
+  `StreamTextAsync` keep the context id and the id of a task that waits for input, and return an `AgentReply` (`Text`,
+  `StatusText`, `State`, ids, `IsCompleted`, `NeedsInput`, `NeedsAuth`, `EnsureCompleted()`) without throwing for a task
+  state. See [Getting started](docs/site/guides/getting-started.md#a-conversation). Design:
+  `docs/superpowers/specs/2026-11-12-simpler-sdk-surface-design.md`.
+- `SendMessageResponse.State`, `.TaskId` and `.ContextId`, and `StreamResponse.ContextId`, so a result can be read
+  without a type switch.
+
 ### Agent Framework
 
 - New package `RomanAmbinder.A2A.Extensions.AgentFramework` (experimental, `A2AEXP006`): Microsoft Agent Framework

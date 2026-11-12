@@ -31,11 +31,11 @@ namespace A2A.Extensions.AI;
 /// </remarks>
 public sealed class A2AChatClient : IChatClient
 {
-    private readonly A2AClient _client;
+    private readonly IA2AClient _client;
     private readonly ChatClientMetadata _metadata;
     private readonly A2AChatClientOptions _options;
 
-    internal A2AChatClient(A2AClient client, A2AChatClientOptions options)
+    internal A2AChatClient(IA2AClient client, A2AChatClientOptions options)
     {
         _client = client;
         _options = options;

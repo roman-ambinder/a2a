@@ -41,7 +41,6 @@ builder.Services.AddA2AServerAspNetCore();
 
 var app = builder.Build();
 app.UseAuthentication();
-app.UseA2A();
 app.UseAuthorization();
 #region Map
 app.MapAgentCard();   // /.well-known/agent-card.json and /{tenant}/.well-known/agent-card.json
@@ -127,9 +126,7 @@ async Task<A2AClient> ConnectAsync(string apiKey, string tenant)
 // The skill goes in metadata["skillId"] of the message. With SkillAuthorizationMode.Required every message names one.
 static Task<SendMessageResponse> SendAsync(A2AClient client, string skill, string text)
 {
-    var message = Message.FromUser(text);
-    var options = client.SelectSkill(message, skill);
-    return client.SendMessageAsync(message, options: options);
+    return client.SendMessageAsync(Message.FromUser(text), options: new A2ARequestOptions { Skill = skill });
 }
 
 static async Task<A2AErrorCode?> ErrorOfAsync(Func<Task> call)

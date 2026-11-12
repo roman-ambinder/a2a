@@ -28,4 +28,22 @@ public static class A2AChatClientAgentBuilderExtensions
                 options)));
         return builder;
     }
+
+    /// <summary>
+    ///     Uses <paramref name="chatClient" /> itself as the model of the A2A agent, without registering it in DI first.
+    ///     The same client serves every execution, as an <see cref="IChatClient" /> usually does. Otherwise as
+    ///     <see cref="AddChatClientAgent(A2AServerBuilder, Action{ChatClientAgentOptions}?, object?)" />.
+    /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="builder" /> or <paramref name="chatClient" /> is null.</exception>
+    public static A2AServerBuilder AddChatClientAgent(this A2AServerBuilder builder, IChatClient chatClient,
+        Action<ChatClientAgentOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(chatClient);
+        var key = new InstanceKey(); // private to this registration, so it never meets a host's own keyed client
+        builder.Services.AddKeyedSingleton(key, chatClient);
+        return builder.AddChatClientAgent(configure, key);
+    }
+
+    private sealed class InstanceKey;
 }

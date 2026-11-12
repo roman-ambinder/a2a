@@ -24,3 +24,15 @@ A2A.Server.Storage.ITaskCommitLookup
 A2A.Server.Storage.ITaskCommitLookup.FindCommitAsync(A2A.Server.Storage.TaskKey task, string! mutationId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<long?>
 A2A.Server.Storage.TaskCommit.MutationId.get -> string?
 A2A.Server.Storage.TaskCommit.MutationId.init -> void
+A2A.Server.A2AServerBuilder.AddRetention(System.Action<A2A.Server.Retention.A2ARetentionOptions!>? configure = null) -> A2A.Server.A2AServerBuilder!
+A2A.Server.A2AServerBuilder.Configure(System.Action<A2A.Server.A2AServerOptions!>! configure) -> A2A.Server.A2AServerBuilder!
+*REMOVED*static A2A.Server.A2AServerServiceCollectionExtensions.AddA2ARetention(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<A2A.Server.Retention.A2ARetentionOptions!>? configure = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+A2A.Server.A2AServerBuilder.AddAgentExecutor(System.Func<A2A.Server.AgentRequestContext!, System.Threading.CancellationToken, System.Threading.Tasks.Task<string!>!>! reply) -> A2A.Server.A2AServerBuilder!
+A2A.Server.A2AServerBuilder.AddAgentExecutor(System.Func<A2A.Server.AgentRequestContext!, string!>! reply) -> A2A.Server.A2AServerBuilder!
+A2A.Server.TaskUpdater.AddArtifactAsync(string! text, string? name = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<string!>
+A2A.Server.TaskUpdater.CancelAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
+A2A.Server.TaskUpdater.CompleteAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
+A2A.Server.TaskUpdater.FailAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
+A2A.Server.TaskUpdater.RejectAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
+A2A.Server.TaskUpdater.StartWorkAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.ValueTask
+A2A.Server.A2AServerBuilder.AddAgentCard(string! name, string! description) -> A2A.Server.A2AServerBuilder!

@@ -10,7 +10,7 @@ using Microsoft.CodeAnalysis.Text;
 
 namespace A2A.Tests.Analyzers;
 
-/// <summary>A2A0001-A2A0003 on small host programs, compiled in memory against the real ASP.NET Core and A2A assemblies.</summary>
+/// <summary>A2A0002 on small host programs, compiled in memory against the real ASP.NET Core and A2A assemblies.</summary>
 public class SetupAnalyzerTests
 {
     // Raw strings take the line endings of this file, which is CRLF in a Windows checkout. The tests edit the programs
@@ -52,7 +52,6 @@ public class SetupAnalyzerTests
         builder.Services.AddA2A(a => a.AddAgentExecutor((ctx, u, ct) => u.CompleteAsync(cancellationToken: ct).AsTask()));
         var app = builder.Build();
         app.UseAuthentication();
-        app.UseA2A();
         app.UseAuthorization();
         app.MapA2A("/a2a").RequireAuthorization();
         app.Run();
@@ -60,15 +59,6 @@ public class SetupAnalyzerTests
 
     [Fact]
     public async Task Correct_host_has_no_diagnostics() => Assert.Empty(await Ids(Good));
-
-    [Fact]
-    public async Task Missing_UseA2A_is_A2A0001() =>
-        Assert.Equal(["A2A0001"], await Ids(Good.Replace("app.UseA2A();\n", "", StringComparison.Ordinal)));
-
-    [Fact]
-    public async Task Turning_rate_limiting_off_lifts_A2A0001() =>
-        Assert.Empty(await Ids(Good.Replace("app.UseA2A();\n", "builder.Services.AddA2ARateLimiting(o => o.Enabled = false);\n",
-            StringComparison.Ordinal)));
 
     [Fact]
     public async Task Mapping_without_authorization_is_A2A0002()
@@ -81,7 +71,7 @@ public class SetupAnalyzerTests
 
     [Theory]
     [InlineData("var a2a = app.MapA2A(\"/a2a\");\nif (!app.Environment.IsDevelopment()) a2a.RequireAuthorization();")]
-    [InlineData("app.MapA2A(\"/a2a\", o => o.AuthorizationPolicy = \"agents\");")]
+    [InlineData("app.MapA2A(\"/a2a\").RequireAuthorization(\"agents\");")]
     [InlineData("app.MapA2A(\"/a2a\").WithName(\"a2a\").RequireAuthorization();")]
     [InlineData("app.MapGroup(\"/api\").RequireAuthorization().MapA2A(\"/a2a\");")]
     public async Task Visible_authorization_is_accepted(string mapping) =>
@@ -89,7 +79,9 @@ public class SetupAnalyzerTests
 
     [Theory]
     [InlineData("builder.Services.Configure<A2AServerOptions>(o => o.AllowAnonymous = true);")]
-    [InlineData("builder.Services.AddA2A(a => a.UseDevelopmentDefaults());")]
+    [InlineData("builder.Services.AddA2A(a => a.ConfigureForDevelopment());")]
+    [InlineData("builder.Services.AddA2A(a => a.RequirePolicy(\"agents\"));")]
+    [InlineData("builder.Services.AddA2A().Configure(o => o.AllowAnonymous = true);")]
     [InlineData("builder.Services.AddAuthorization(o => o.FallbackPolicy = null);")]
     [InlineData("builder.Services.AddA2A(a => a.AddApiKeyAuthentication());")]
     [InlineData("builder.Services.AddA2A(a => a.AddBearerAuthentication());")]
@@ -97,26 +89,6 @@ public class SetupAnalyzerTests
     public async Task Anonymous_opt_in_lifts_A2A0002(string optIn) =>
         Assert.Empty(await Ids(Good.Replace(".RequireAuthorization()", "", StringComparison.Ordinal)
             .Replace("var app = builder.Build();", optIn + "\nvar app = builder.Build();", StringComparison.Ordinal)));
-
-    [Fact]
-    public async Task UseA2A_after_UseAuthorization_is_A2A0003()
-    {
-        var program = Good.Replace("app.UseA2A();\napp.UseAuthorization();", "app.UseAuthorization();\napp.UseA2A();",
-            StringComparison.Ordinal);
-        var d = Assert.Single(await Analyze(program));
-        Assert.Equal("A2A0003", d.Id);
-        Assert.Contains("before UseAuthorization()", d.GetMessage(), StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task UseA2A_before_UseAuthentication_is_A2A0003()
-    {
-        var program = Good.Replace("app.UseAuthentication();\napp.UseA2A();", "app.UseA2A();\napp.UseAuthentication();",
-            StringComparison.Ordinal);
-        var d = Assert.Single(await Analyze(program));
-        Assert.Equal("A2A0003", d.Id);
-        Assert.Contains("after UseAuthentication()", d.GetMessage(), StringComparison.Ordinal);
-    }
 
     [Fact]
     public async Task Code_with_no_A2A_call_is_ignored() =>
@@ -130,11 +102,6 @@ public class SetupAnalyzerTests
             .Replace("var app = builder.Build();",
                 "builder.Services.Configure<A2AServerOptions>(o => o.AllowAnonymous = false);\nvar app = builder.Build();",
                 StringComparison.Ordinal)));
-
-    [Fact]
-    public async Task Rate_limiting_Enabled_true_does_not_lift_A2A0001() =>
-        Assert.Equal(["A2A0001"], await Ids(Good.Replace("app.UseA2A();\n",
-            "builder.Services.AddA2ARateLimiting(o => o.Enabled = true);\n", StringComparison.Ordinal)));
 
     [Fact]
     public async Task A_value_that_is_not_constant_still_lifts_A2A0002() =>
@@ -155,13 +122,16 @@ public class SetupAnalyzerTests
     }
 
     [Fact]
-    public async Task Missing_UseA2A_and_authorization_show_while_typing()
+    public async Task Missing_authorization_shows_while_typing()
     {
-        var program = Good.Replace("app.UseA2A();\n", "", StringComparison.Ordinal)
-            .Replace(".RequireAuthorization()", "", StringComparison.Ordinal);
-        Assert.Equal(["A2A0001", "A2A0002"], await LiveIds(program));
-        Assert.Equal(["A2A0001", "A2A0002"], await Ids(program)); // and once each in the build, not twice
+        var program = Good.Replace(".RequireAuthorization()", "", StringComparison.Ordinal);
+        Assert.Equal(["A2A0002"], await LiveIds(program));
+        Assert.Equal(["A2A0002"], await Ids(program)); // and once in the build, not twice
     }
+
+    [Fact]
+    public async Task UseA2A_rules_no_longer_exist() =>
+        Assert.DoesNotContain(new A2ASetupAnalyzer().SupportedDiagnostics, d => d.Id is "A2A0001" or "A2A0003");
 
     [Fact]
     public async Task Live_diagnostics_are_not_compilation_end()
@@ -260,15 +230,6 @@ public class SetupAnalyzerTests
     }
 
     [Fact]
-    public async Task Fix_adds_UseA2A_before_UseAuthorization()
-    {
-        var fixedProgram = await Fix(Good.Replace("app.UseA2A();\n", "", StringComparison.Ordinal));
-        Assert.Contains("app.UseAuthentication();\napp.UseA2A();\napp.UseAuthorization();", fixedProgram.ReplaceLineEndings("\n"),
-            StringComparison.Ordinal);
-        Assert.Empty(await Ids(fixedProgram));
-    }
-
-    [Fact]
     public async Task Fix_inside_a_method_body()
     {
         const string program = """
@@ -278,13 +239,13 @@ public class SetupAnalyzerTests
                 {
                     app.UseAuthentication();
                     app.UseAuthorization();
-                    app.MapA2A("/a2a").RequireAuthorization();
+                    app.MapA2A("/a2a");
                 }
 
                 public static void Main() { }
             }
             """;
         var fixedProgram = (await Fix(program)).ReplaceLineEndings("\n");
-        Assert.Contains("        app.UseA2A();\n        app.UseAuthorization();", fixedProgram, StringComparison.Ordinal);
+        Assert.Contains("        app.MapA2A(\"/a2a\").RequireAuthorization();", fixedProgram, StringComparison.Ordinal);
     }
 }

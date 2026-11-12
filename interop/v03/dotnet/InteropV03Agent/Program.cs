@@ -22,7 +22,7 @@ builder.WebHost.ConfigureKestrel(k =>
     // gRPC without TLS needs an HTTP/2-only endpoint.
     k.ListenLocalhost(port + 1, o => o.Protocols = HttpProtocols.Http2);
 });
-builder.Services.AddA2AServer(o =>
+var a2a = builder.Services.AddA2AServer(o =>
 {
     // The interop clients are anonymous; production agents call RequireAuthorization() instead.
     o.AllowAnonymous = true;
@@ -50,14 +50,13 @@ builder.Services.AddA2AServer(o =>
 builder.Services.AddA2AServerAspNetCore();
 builder.Services.AddA2AGrpcV03Compat();
 // All interop clients share one address, so the default per-caller budget is too small for a full run.
-builder.Services.AddA2ARateLimiting(o =>
+a2a.ConfigureRateLimiting(o =>
 {
     o.TokenLimit = 10_000;
     o.TokensPerPeriod = 10_000;
 });
 
 var app = builder.Build();
-app.UseA2A();
 app.MapAgentCard();
 app.MapA2A("/", o => o.EnableV03Compat());
 app.MapA2AGrpc();

@@ -10,7 +10,6 @@ dotnet add package RomanAmbinder.A2A.Server.AspNetCore
 ```csharp
 builder.Services.AddA2A(a => a.AddAgentExecutor<MyAgent>().AddAgentCard(card));
 // ...
-app.UseA2A();                               // rate limiting; the app refuses to start without it
 app.MapA2A("/a2a").RequireAuthorization();  // also maps the Agent Card at /.well-known/agent-card.json
 ```
 

@@ -31,10 +31,9 @@ var card = new AgentCard
 // AllowAnonymous is fine for a sample that only listens on loopback. A real agent needs authentication
 // (see samples/EchoAgent) and MapA2A(...).RequireAuthorization().
 builder.Services.AddA2A(a => a.AddAgentExecutor<BookingAgent>().AddAgentCard(card))
-    .Configure<A2AServerOptions>(o => o.AllowAnonymous = true);
+    .Configure(o => o.AllowAnonymous = true);
 
 var app = builder.Build();
-app.UseA2A();
 app.MapA2A("/a2a");
 await app.StartAsync();
 

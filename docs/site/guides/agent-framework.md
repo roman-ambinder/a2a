@@ -23,7 +23,7 @@ Register an `AIAgent`, then call `AddAIAgent` on the A2A builder:
 
 The reply streams to the caller as chunks of one artifact named `response`, exactly as `AddChatClientAgent` streams a chat client's reply (the two share the code). Every execution is an A2A task, so cancel and follow-ups always work: cancelling the task cancels the token the agent runs with, and the task ends `CANCELED`.
 
-`AddAIAgent` registers a scoped executor and replaces any executor registered before. The agent is resolved from each execution's DI scope, so it can depend on scoped services. Pass `serviceKey` for a keyed agent.
+`AddAIAgent` registers a scoped executor and replaces any executor registered before. Pass the agent itself, as above, when one instance can serve every execution. Leave it out to resolve the agent from each execution's DI scope, so it can depend on scoped services; pass `serviceKey` for a keyed agent. The options share their reply, history and security settings with `AddChatClientAgent` (<xref:A2A.Extensions.AI.A2AModelAgentOptions>).
 
 The agent gets the A2A task id, the context id and the message's reference task ids in `AgentRunOptions.AdditionalProperties` (keys in `A2AAgentKeys`). Caller metadata is never copied there, because an agent may put those properties in front of a model. Code that runs during the run, such as a tool, reads them through `AIAgent.CurrentRunContext?.RunOptions?.AdditionalProperties`. Set more with `ConfigureRunOptions`, from data you trust:
 

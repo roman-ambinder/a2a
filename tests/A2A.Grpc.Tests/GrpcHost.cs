@@ -92,7 +92,6 @@ internal sealed class GrpcHost : IAsyncDisposable
     /// <param name="configure">Server options on top of the defaults.</param>
     /// <param name="services">Extra service registrations.</param>
     /// <param name="requireAuth">Calls <c>RequireAuthorization()</c> on the gRPC endpoints.</param>
-    /// <param name="useA2A">Adds the A2A middleware (rate limiter).</param>
     /// <param name="aspNetCore">Calls <c>AddA2AServerAspNetCore()</c>.</param>
     /// <param name="configureEndpoints">Runs on the gRPC endpoint convention builder after mapping.</param>
     /// <param name="mapExtensions">Also maps <c>MapA2AGrpcExtensions()</c> (the extension operation service).</param>
@@ -100,7 +99,7 @@ internal sealed class GrpcHost : IAsyncDisposable
     /// <param name="configurePipeline">Runs first in the request pipeline.</param>
     /// <param name="server">Extra server registrations on the <see cref="A2AServerBuilder"/> (filters, stores).</param>
     public static async Task<GrpcHost> StartAsync(Action<A2AServerOptions>? configure = null, Action<IServiceCollection>? services = null,
-        bool requireAuth = true, bool useA2A = true, bool aspNetCore = true,
+        bool requireAuth = true, bool aspNetCore = true,
         Action<IEndpointConventionBuilder>? configureEndpoints = null, Action<WebApplication>? configurePipeline = null,
         Action<A2AServerBuilder>? server = null, bool mapExtensions = false, bool requireExtensionsAuth = true)
     {
@@ -130,7 +129,6 @@ internal sealed class GrpcHost : IAsyncDisposable
         var app = builder.Build();
         configurePipeline?.Invoke(app);
         app.UseAuthentication();
-        if (useA2A) app.UseA2A();
         app.UseAuthorization();
         app.MapAgentCard();
         var grpc = app.MapA2AGrpc();

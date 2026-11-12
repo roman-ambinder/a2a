@@ -78,4 +78,32 @@ public sealed class A2ARequestOptions
     ///     <see cref="Headers" />, once per attempt.
     /// </summary>
     public Func<HttpRequestMessage, CancellationToken, ValueTask>? ConfigureRequest { get; set; }
+
+    /// <summary>
+    ///     The <see cref="AgentSkill.Id" /> of the skill this send is for (skill-selection extension), or null for none. An
+    ///     <see cref="A2AClient" /> writes it to the message metadata and requests the extension; when
+    ///     <see cref="A2AClientOptions.ValidateCapabilities" /> is on and the card is known, a skill the card does not list
+    ///     fails before anything is sent (unless the card has an extended card that is not loaded yet). A plain A2A peer
+    ///     ignores it. Only sends use it.
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.Experimental("A2AEXP001",
+        UrlFormat = "https://github.com/roman-ambinder/a2a/blob/main/docs/site/guides/versioning.md#{0}")]
+    public string? Skill { get; set; }
+
+    /// <summary>A copy with <paramref name="extension" /> added to <see cref="Extensions" />; the caller's options stay as they are.</summary>
+    internal A2ARequestOptions WithExtension(string extension)
+    {
+        var copy = new A2ARequestOptions
+        {
+            IdempotencyKey = IdempotencyKey, Timeout = Timeout, MaxRetries = MaxRetries,
+            ConfigureRequest = ConfigureRequest,
+#pragma warning disable A2AEXP001
+            Skill = Skill,
+#pragma warning restore A2AEXP001
+            Extensions = new List<string>(Extensions ?? [])
+        };
+        foreach (var header in Headers) copy.Headers[header.Key] = header.Value;
+        if (!copy.Extensions.Contains(extension)) copy.Extensions.Add(extension);
+        return copy;
+    }
 }

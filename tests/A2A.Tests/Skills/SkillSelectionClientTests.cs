@@ -10,11 +10,22 @@ public class SkillSelectionClientTests
 {
     public static TheoryData<string> Bindings => BindingTests.Bindings;
 
-    private sealed class CardTransport(AgentCard extended) : IA2AClient
+    /// <summary>Answers the extended card and records what each send carried.</summary>
+    private sealed class CardTransport(AgentCard extended) : IA2ATransport
     {
+        public List<(Message Message, A2ARequestOptions? Options)> Sent { get; } = [];
         public Task<AgentCard> GetExtendedAgentCardAsync(GetExtendedAgentCardRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => Task.FromResult(extended);
-        public Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public IAsyncEnumerable<StreamResponse> SendStreamingMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default)
+        {
+            Sent.Add((request.Message!, options));
+            return Task.FromResult<SendMessageResponse>(new MessageResponse(Message.FromAgent("ok")));
+        }
+        public async IAsyncEnumerable<StreamResponse> SendStreamingMessageAsync(SendMessageRequest request, A2ARequestOptions? options = null, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            Sent.Add((request.Message!, options));
+            await Task.Yield();
+            yield return StreamResponse.Of(Message.FromAgent("ok"));
+        }
         public Task<AgentTask> GetTaskAsync(GetTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, A2ARequestOptions? options = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
@@ -48,81 +59,91 @@ public class SkillSelectionClientTests
         return card;
     }
 
-    private static A2AClient Client(AgentCard? card, bool validate = true, AgentCard? extended = null) =>
-        new(new CardTransport(extended ?? Card(false)), new A2AClientOptions { ValidateCapabilities = validate }, card);
+    private static (A2AClient Client, CardTransport Transport) Client(AgentCard? card, bool validate = true, AgentCard? extended = null)
+    {
+        var transport = new CardTransport(extended ?? Card(false));
+        return (new A2AClient(transport, new A2AClientOptions { ValidateCapabilities = validate }, card), transport);
+    }
+
+    private static A2ARequestOptions For(string skill) => new() { Skill = skill };
 
     [Fact]
-    public void Sets_metadata_adds_uri_once_and_returns_same_options()
+    public async Task Skill_sets_metadata_and_requests_the_extension_without_changing_the_callers_options()
     {
-        var client = Client(Card(false, "a"));
-        var message = Msg();
-        var options = new A2ARequestOptions();
-        var first = client.SelectSkill(message, "a", options);
-        var second = client.SelectSkill(message, "a", options);
-        Assert.Same(options, first);
-        Assert.Same(options, second);
+        var (client, transport) = Client(Card(false, "a"));
+        var options = For("a");
+        await client.SendMessageAsync(Msg(), options: options);
+        var (message, sent) = Assert.Single(transport.Sent);
         Assert.Equal("a", message.GetRequestedSkillId());
-        Assert.Equal([SkillSelection.ExtensionUri], options.Extensions);
+        Assert.Equal([SkillSelection.ExtensionUri], sent!.Extensions);
+        Assert.Null(options.Extensions); // the caller's options are reusable as they are
     }
 
     [Fact]
-    public void Null_options_give_new_options()
+    public async Task Existing_extensions_are_kept_once()
     {
-        var options = Client(Card(false, "a")).SelectSkill(Msg(), "a");
-        Assert.Equal([SkillSelection.ExtensionUri], options.Extensions);
+        var (client, transport) = Client(Card(false, "a"));
+        var options = new A2ARequestOptions { Skill = "a", Extensions = new[] { "urn:x", SkillSelection.ExtensionUri } };
+        await client.SendMessageAsync(Msg(), options: options);
+        Assert.Equal(["urn:x", SkillSelection.ExtensionUri], Assert.Single(transport.Sent).Options!.Extensions);
     }
 
     [Fact]
-    public void Read_only_extensions_are_replaced_and_keep_entries()
+    public async Task Streaming_sends_apply_the_skill_too()
     {
-        var options = new A2ARequestOptions { Extensions = new[] { "urn:x" } };
-        var result = Client(Card(false, "a")).SelectSkill(Msg(), "a", options);
-        Assert.Equal(["urn:x", SkillSelection.ExtensionUri], result.Extensions);
-        Assert.False(result.Extensions!.IsReadOnly);
+        var (client, transport) = Client(Card(false, "a"));
+        await foreach (var _ in client.SendStreamingMessageAsync(Msg(), options: For("a"))) { }
+        var (message, sent) = Assert.Single(transport.Sent);
+        Assert.Equal("a", message.GetRequestedSkillId());
+        Assert.Contains(SkillSelection.ExtensionUri, sent!.Extensions!);
     }
 
     [Fact]
-    public void Unknown_skill_on_known_card_throws_and_leaves_message_unchanged()
+    public async Task Unknown_skill_on_known_card_throws_and_sends_nothing()
     {
+        var (client, transport) = Client(Card(false, "a"));
         var message = Msg();
-        var ex = Assert.Throws<A2AException>(() => Client(Card(false, "a")).SelectSkill(message, "nope"));
+        var ex = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync(message, options: For("nope")));
         Assert.Equal(A2AErrorCode.InvalidParams, ex.Code);
+        Assert.Empty(transport.Sent);
         Assert.Null(message.Metadata);
     }
 
     [Fact]
-    public void Validation_off_does_not_throw()
+    public async Task Validation_off_or_no_card_sends_any_skill()
     {
-        var message = Msg();
-        Client(Card(false, "a"), validate: false).SelectSkill(message, "nope");
-        Assert.Equal("nope", message.GetRequestedSkillId());
-    }
+        var (unchecked_, sentA) = Client(Card(false, "a"), validate: false);
+        await unchecked_.SendMessageAsync(Msg(), options: For("nope"));
+        Assert.Equal("nope", Assert.Single(sentA.Sent).Message.GetRequestedSkillId());
 
-    [Fact]
-    public void No_card_does_not_throw() => Client(null).SelectSkill(Msg(), "nope");
+        var (noCard, sentB) = Client(null);
+        await noCard.SendMessageAsync(Msg(), options: For("nope"));
+        Assert.Single(sentB.Sent);
+    }
 
     [Fact]
     public async Task Extended_card_not_loaded_skips_check_then_enforces_after_refresh()
     {
         var extended = Card(true, "a", "secret");
-        var client = Client(Card(true, "a"), extended: extended);
-        client.SelectSkill(Msg(), "secret");
-        client.SelectSkill(Msg(), "nope");
+        var (client, _) = Client(Card(true, "a"), extended: extended);
+        await client.SendMessageAsync(Msg(), options: For("secret"));
+        await client.SendMessageAsync(Msg(), options: For("nope"));
 
         await client.RefreshWithExtendedAgentCardAsync();
 
-        client.SelectSkill(Msg(), "secret");
-        var ex = Assert.Throws<A2AException>(() => client.SelectSkill(Msg(), "nope"));
+        await client.SendMessageAsync(Msg(), options: For("secret"));
+        var ex = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync(Msg(), options: For("nope")));
         Assert.Equal(A2AErrorCode.InvalidParams, ex.Code);
     }
 
     [Fact]
-    public void Bad_arguments_throw()
+    public async Task An_empty_skill_selects_nothing()
     {
-        var client = Client(null);
-        Assert.Throws<ArgumentNullException>(() => client.SelectSkill(null!, "a"));
-        Assert.Throws<ArgumentNullException>(() => client.SelectSkill(Msg(), null!));
-        Assert.Throws<ArgumentException>(() => client.SelectSkill(Msg(), ""));
+        var (client, transport) = Client(Card(false, "a"));
+        await client.SendMessageAsync(Msg(), options: For(""));
+        var (message, sent) = Assert.Single(transport.Sent);
+        Assert.Null(message.GetRequestedSkillId());
+        Assert.Null(sent!.Extensions);
     }
 
     private static async Task<(TestAgentHost Host, RecordingAgent Agent)> StartAsync()
@@ -140,9 +161,7 @@ public class SkillSelectionClientTests
         var (host, agent) = await StartAsync();
         await using var _ = host;
         var client = host.Client(binding);
-        var message = Msg();
-        var options = client.SelectSkill(message, "scenario");
-        await client.SendMessageAsync(message, options: options);
+        await client.SendMessageAsync(Msg(), options: For("scenario"));
         await host.WaitIdleAsync();
         Assert.Equal("scenario", agent.Requested);
     }
@@ -153,9 +172,7 @@ public class SkillSelectionClientTests
         var (host, agent) = await StartAsync();
         await using var _ = host;
         var client = host.Client(binding);
-        var message = Msg();
-        var options = client.SelectSkill(message, "scenario");
-        await foreach (var _e in client.SendStreamingMessageAsync(message, options: options)) { }
+        await foreach (var _e in client.SendStreamingMessageAsync(Msg(), options: For("scenario"))) { }
         await host.WaitIdleAsync();
         Assert.Equal("scenario", agent.Requested);
     }

@@ -6,7 +6,7 @@ It is off by default. With nothing turned on, every request behaves as before.
 
 ## How a request names its skill
 
-The client puts the skill id in `metadata["skillId"]` of the message. This is the same key as [skill selection](skill-selection.md), so `A2AClient.SelectSkill` works for both.
+The client puts the skill id in `metadata["skillId"]` of the message. This is the same key as [skill selection](skill-selection.md), so `A2ARequestOptions.Skill` works for both.
 
 A2A v1.0 has no standard field for this. The key is an SDK choice, and it may move if the upstream epic #1989 lands. Only the metadata of the message counts, not the metadata of the request.
 

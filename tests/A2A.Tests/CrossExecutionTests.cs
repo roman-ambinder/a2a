@@ -70,7 +70,7 @@ public class CrossExecutionTests
         services: s => s.AddScoped<IAgentExecutor, CancelRaceAgent>());
 
     /// <summary>A bare transport: no client-side resume, so the server stream is seen exactly as sent.</summary>
-    private static IA2AClient Transport(TestAgentHost host, string binding)
+    private static IA2ATransport Transport(TestAgentHost host, string binding)
     {
         var http = host.Http("alice");
         return binding == ProtocolBindings.JsonRpc
@@ -93,7 +93,7 @@ public class CrossExecutionTests
     }
 
     /// <summary>The agent signals before its first event is stored: wait until the task is visible in that state.</summary>
-    private static async Task WaitForStateAsync(IA2AClient client, string taskId, TaskState state)
+    private static async Task WaitForStateAsync(IA2ATransport client, string taskId, TaskState state)
     {
         var deadline = DateTime.UtcNow + Wait;
         while (true)

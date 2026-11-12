@@ -21,12 +21,8 @@ internal static class Snippets
     public static void ServerWithPolicy(WebApplication app)
     {
         #region ServerPolicy
-        // A policy set here covers the v0.3 routes too.
-        app.MapA2A("/", o =>
-        {
-            o.AuthorizationPolicy = "A2A";
-            o.EnableV03Compat();
-        });
+        // Authorization on the group covers the v0.3 routes too, like a policy set on the A2A builder.
+        app.MapA2A("/", o => o.EnableV03Compat()).RequireAuthorization("A2A");
         #endregion
     }
 

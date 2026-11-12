@@ -7,7 +7,7 @@ namespace Snippets.BearerAuthentication;
 internal sealed class MyAgent : IAgentExecutor
 {
     public Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken cancellationToken) =>
-        updater.CompleteAsync(cancellationToken: cancellationToken).AsTask();
+        updater.CompleteAsync(cancellationToken).AsTask();
 }
 
 internal static class Samples
@@ -27,7 +27,6 @@ internal static class Samples
 
         var app = builder.Build();
         app.UseAuthentication();
-        app.UseA2A();
         app.UseAuthorization();
         app.MapA2A("/a2a"); // no RequireAuthorization: every A2A endpoint requires the token
         #endregion

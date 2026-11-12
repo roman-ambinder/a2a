@@ -1,3 +1,4 @@
+using A2A.Client;
 using System.Collections.Concurrent;
 using System.Diagnostics.Metrics;
 using System.Net;

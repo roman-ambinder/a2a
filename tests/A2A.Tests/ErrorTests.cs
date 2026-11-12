@@ -1,3 +1,4 @@
+using A2A.Client;
 using A2A.Server.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
