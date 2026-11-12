@@ -4,6 +4,7 @@ using System.Threading.Channels;
 using A2A.Delegation;
 using A2A.Diagnostics;
 using A2A.Elicitations;
+using A2A.Json;
 using A2A.Server.Agents;
 using A2A.Server.Coordination;
 using A2A.Server.Idempotency;
@@ -1174,6 +1175,17 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
                     committed = found;
                     recovered = true;
                 }
+                catch (ConcurrencyException conflict) when (mutationIds is null &&
+                                                            evt is ArtifactUpdateEvent { ArtifactUpdate.Append: true })
+                {
+                    // No commit lookup, so the ids cannot tell whether this conflict is the store's own retry meeting this
+                    // very write. An append is not idempotent: applying it again would put its parts in the task twice.
+                    // Keep it as stored only when the task holds exactly this write; otherwise reload and retry below.
+                    if (await FindOwnAppendAsync(key, record, next, evt, conflict).ConfigureAwait(false) is not
+                        { } found) throw;
+                    committed = found;
+                    recovered = true;
+                }
 
                 exec?.Usage.MarkStored(usage);
                 if (exec is not null)
@@ -1262,6 +1274,47 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
         }
 
         return null;
+    }
+
+    /// <summary>
+    ///     After a version conflict on an append, for a store without <see cref="ITaskCommitLookup" />: whether the
+    ///     conflict came from this very write (a store that retried the commit and met its own first attempt). Returns the
+    ///     task as stored and the sequence of that commit when the stored task is exactly one version past
+    ///     <paramref name="written" /> and its artifact equals the one in <paramref name="next" />; null otherwise, and then
+    ///     the caller reloads and applies the append again, as for a conflict with another writer.
+    /// </summary>
+    /// <remarks>
+    ///     The sequence is read before the task. A task still one version past <paramref name="written" /> means no commit
+    ///     followed this one before the task was read, so none before the sequence was read either, and every commit
+    ///     appends exactly one event. The remaining doubt is another writer whose one commit appended the same parts to the
+    ///     same artifact: that is taken for this write.
+    /// </remarks>
+    private async ValueTask<CommitResult?> FindOwnAppendAsync(TaskKey key, TaskRecord written, AgentTask next,
+        StreamResponse evt, ConcurrencyException conflict)
+    {
+        try
+        {
+            var artifactId = ((ArtifactUpdateEvent)evt).ArtifactUpdate.Artifact.ArtifactId;
+            var sequence = await _events.LastSequenceAsync(key, CancellationToken.None).ConfigureAwait(false);
+            if (await _tasks.GetAsync(key, CancellationToken.None).ConfigureAwait(false) is not { } stored ||
+                stored.Version != written.Version + 1)
+                return null;
+
+            var mine = IndexOfArtifact(next.Artifacts, artifactId);
+            var theirs = IndexOfArtifact(stored.Task.Artifacts, artifactId);
+            if (mine < 0 || theirs < 0 ||
+                !A2AJson.SerializeToUtf8Bytes(next.Artifacts![mine])
+                    .AsSpan().SequenceEqual(A2AJson.SerializeToUtf8Bytes(stored.Task.Artifacts![theirs])))
+                return null;
+
+            ServerLog.CommitFoundAfterFailure(Logger, conflict, key.TaskId, sequence);
+            return new CommitResult(stored, sequence);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            ServerLog.CommitLookupFailed(Logger, ex, key.TaskId);
+            return null;
+        }
     }
 
     /// <summary>

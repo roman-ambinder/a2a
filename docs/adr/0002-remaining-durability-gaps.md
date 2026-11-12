@@ -131,9 +131,23 @@ The main risk of Option C is the D2 investigation itself. If the failure exists,
      | Without `ITaskCommitLookup` | `TimeoutException` | The task ends `FAILED` with `0, 1`, as for the other chunks. |
      | With `ITaskCommitLookup` | either | Correct: each chunk once, `COMPLETED`. |
 
-     So a store that retries a commit internally must implement `ITaskCommitLookup`, or it can duplicate parts in the
-     task itself. `AmbiguousCommitTests.Without_the_lookup_a_conflict_on_a_middle_append_stores_the_chunk_twice` pins
-     this behaviour until it is fixed.
+     So a store that retries a commit internally could duplicate parts in the task itself without `ITaskCommitLookup`.
+
+     Fixed on 2026-11-12 in the engine. After a conflict on an append, a store without the lookup gets one more check:
+     when the task is one version past the one the engine wrote and holds exactly its artifact, the append is kept as
+     stored, with the sequence read before the task (log event 226). Any other stored task is reloaded and the append is
+     applied again, as before. Results now:
+
+     | Store | Case | Result |
+     |---|---|---|
+     | Without `ITaskCommitLookup` | The store's own conflict | Each chunk once, 22 artifact events, `COMPLETED` (`Without_the_lookup_a_conflict_on_a_middle_append_stores_the_chunk_once`) |
+     | Without `ITaskCommitLookup` | Another writer changed the task first | The chunk is applied once on top of that change (`Without_the_lookup_a_real_conflict_on_a_middle_append_still_applies_the_chunk`) |
+
+     Left as it was: an event that is not an append is still applied again after such a conflict, so the event log
+     holds it twice. For the chunk that creates the artifact the task stays correct (item 1 above); other kinds of
+     event are not tested for this. The remaining doubt of
+     the check is another writer whose one commit appended the same parts to the same artifact: it is taken for this
+     write.
 2. [x] If the event is stored twice: add an optional mutation id to `TaskCommit`, a capability interface for stores that keep it, and implementations in the in-memory, Postgres and Redis stores. Follow ADR-001 rule 2, and add the startup check from ADR-001 action item 3.
 
    Done:
