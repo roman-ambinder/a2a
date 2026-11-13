@@ -5,3 +5,6 @@ A2A.Server.Postgres.PostgresStoreOptions.ArtifactRows.set -> void
 A2A.Server.Postgres.PostgresStoreOptions.ArtifactRowsCompactAt.get -> int
 A2A.Server.Postgres.PostgresStoreOptions.ArtifactRowsCompactAt.set -> void
 A2A.Server.Postgres.PostgresTaskStore.InlineArtifactPartsAsync(int batchSize = 100, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<int>
+A2A.Server.Postgres.PostgresStoreOptions.HistoryRows.get -> bool
+A2A.Server.Postgres.PostgresStoreOptions.HistoryRows.set -> void
+A2A.Server.Postgres.PostgresTaskStore.InlineHistoryAndTimelineAsync(int batchSize = 100, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<int>

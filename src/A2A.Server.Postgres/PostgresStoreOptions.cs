@@ -129,6 +129,27 @@ public sealed partial class PostgresStoreOptions
 
     private int _artifactRowsCompactAt = 256;
 
+    /// <summary>
+    ///     Stores each task's <see cref="AgentTask.History" /> messages and A2A 1.1 <see cref="AgentTask.Timeline" /> entries
+    ///     in their own rows (<c>a2a_task_entries</c>, migration 0008, one row per message or entry), so a status update or
+    ///     a follow-up message writes only its new message and timeline entry instead of rewriting the whole task. The
+    ///     timeline keeps its newest <see cref="A2ALimits.MaxTimelineEntries" /> entries in rows too: the oldest rows are
+    ///     deleted as the engine drops those entries. Default false.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         Turn it on only when every instance that shares the database runs a version that has this option. An older
+    ///         version reads such a task with an empty history and timeline, and its writes leave the rows stale.
+    ///     </para>
+    ///     <para>
+    ///         Reads handle both forms whatever this says. With the option off, every write stores the history and timeline
+    ///         in the task again. Before downgrading to a version without this option, turn it off and call
+    ///         <see cref="PostgresTaskStore.InlineHistoryAndTimelineAsync" /> until it returns 0. It is independent of
+    ///         <see cref="ArtifactRows" />: either can be on without the other.
+    ///     </para>
+    /// </remarks>
+    public bool HistoryRows { get; set; }
+
     [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]{0,62}$", RegexOptions.CultureInvariant)]
     private static partial Regex IdentifierPattern();
 }

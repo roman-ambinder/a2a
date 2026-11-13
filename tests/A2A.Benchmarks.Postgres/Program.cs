@@ -30,8 +30,13 @@ using Testcontainers.PostgreSql;
 // With the argument "paced" it measures memory instead: an agent that waits 1 ms before each append (so chunks do not
 // queue into batches, as with a model streaming tokens), N appends to one artifact, and the bytes the process allocated
 // during the SendMessage (GC.GetTotalAllocatedBytes), per append.
+//
+// With the argument "status" it measures a status-heavy task (ADR-005): an agent that sends N status updates, each with a
+// message of B bytes (or none: "bare"), then completes. Status updates are never batched, so each one is a commit. Reported:
+// commits, wall time, WAL, and the bytes the process allocated, with PostgresStoreOptions.HistoryRows on and off.
 
 var paced = args.Contains("paced");
+var status = args.Contains("status");
 var cases = new (int Chunks, int ChunkBytes)[] { (1000, 100), (1000, 1000), (250, 10_000) };
 var external = Environment.GetEnvironmentVariable("A2A_BENCH_POSTGRES");
 PostgreSqlContainer? container = null;
@@ -44,6 +49,25 @@ if (string.IsNullOrEmpty(external))
 var connectionString = external ?? container!.GetConnectionString();
 try
 {
+    if (status)
+    {
+        Console.WriteLine("| Updates | Message bytes | History rows | Commits | Total ms | ms / update | WAL MB | WAL KB / update | Allocated MB | KB / update |");
+        Console.WriteLine("|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|");
+        await Bench.RunAsync(connectionString, 50, 100, batching: true, rows: false, warmUp: true, statusUpdates: true);
+        foreach (var (n, bytes) in new[] { (1000, 100), (2000, 100), (4000, 100), (1000, 1000), (2000, 0) })
+            foreach (var historyRows in new[] { false, true })
+            {
+                var r = await Bench.RunAsync(connectionString, n, bytes, batching: true, rows: false, warmUp: false,
+                    statusUpdates: true, historyRows: historyRows);
+                Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                    $"| {n} | {(bytes == 0 ? "bare" : bytes.ToString(CultureInfo.InvariantCulture))} | {(historyRows ? "on" : "off")} | {r.Commits} | " +
+                    $"{r.Elapsed.TotalMilliseconds:F0} | {r.Elapsed.TotalMilliseconds / n:F2} | {r.WalBytes / 1048576.0:F1} | " +
+                    $"{r.WalBytes / 1024.0 / n:F1} | {r.Allocated / 1048576.0:F1} | {r.Allocated / 1024.0 / n:F1} |"));
+            }
+
+        return;
+    }
+
     if (paced)
     {
         Console.WriteLine("| Appends | Artifact rows | Commits | Allocated MB | KB / append | Total ms |");
@@ -84,7 +108,8 @@ internal static class Bench
     private const string BaseUrl = "http://localhost/a2a";
 
     public static async Task<(int Commits, TimeSpan Elapsed, long WalBytes, long Allocated)> RunAsync(
-        string connectionString, int chunks, int chunkBytes, bool batching, bool rows, bool warmUp, bool paced = false)
+        string connectionString, int chunks, int chunkBytes, bool batching, bool rows, bool warmUp, bool paced = false,
+        bool statusUpdates = false, bool historyRows = false)
     {
         var schema = "bench_" + Guid.NewGuid().ToString("N")[..12];
         await using var db = NpgsqlDataSource.Create(connectionString);
@@ -106,16 +131,20 @@ internal static class Bench
         {
             o.AgentCard = card;
             o.AllowAnonymous = true;
-        }).AddAgentExecutor<ChunkAgent>().AddPostgresStores(db, o =>
+        });
+        if (statusUpdates) a2a.AddAgentExecutor<StatusAgent>();
+        else a2a.AddAgentExecutor<ChunkAgent>();
+        a2a.AddPostgresStores(db, o =>
         {
             o.Schema = schema;
             o.ArtifactRows = rows;
+            o.HistoryRows = historyRows;
         });
         // The same Postgres task store, wrapped to count commits; without IBatchTaskCommit when batching is off.
         builder.Services.Replace(ServiceDescriptor.Singleton<TaskStore>(sp =>
         {
             var inner = new PostgresTaskStore(db, sp.GetRequiredService<IOptions<A2AServerOptions>>().Value.Streaming,
-                new PostgresStoreOptions { Schema = schema, ArtifactRows = rows });
+                new PostgresStoreOptions { Schema = schema, ArtifactRows = rows, HistoryRows = historyRows });
             return batching ? new CountingBatchStore(inner, counter) : new CountingStore(inner, counter);
         }));
         builder.Services.AddA2AServerAspNetCore();
@@ -130,13 +159,26 @@ internal static class Bench
         var before = await WalLsnAsync(db);
         var allocatedBefore = GC.GetTotalAllocatedBytes(true);
         var watch = Stopwatch.StartNew();
-        var task = ((TaskResponse)await client.SendMessageAsync("go")).Task;
+        // No time limit: a long status-heavy task without history rows takes minutes.
+        var task = ((TaskResponse)await client.SendMessageAsync("go", options: new A2ARequestOptions { Timeout = Timeout.InfiniteTimeSpan })).Task;
         watch.Stop();
         var allocated = GC.GetTotalAllocatedBytes(true) - allocatedBefore;
         var after = await WalLsnAsync(db);
         if (task.Status.State != TaskState.Completed)
             throw new InvalidOperationException($"The task ended {task.Status.State}.");
-        if (!warmUp)
+        if (!warmUp && statusUpdates)
+        {
+            // The client's message and each update's message (the completion has none). The response returns only the
+            // newest MaxHistoryLengthReturned, so the stored task is read.
+            await using var tenantCmd = db.CreateCommand($"SELECT tenant FROM \"{schema}\".a2a_tasks WHERE task_id = $1");
+            tenantCmd.Parameters.Add(new NpgsqlParameter { Value = task.Id });
+            var tenant = (string)(await tenantCmd.ExecuteScalarAsync())!;
+            var stored = await app.Services.GetRequiredService<TaskStore>().GetForMaintenanceAsync(tenant, task.Id);
+            var history = stored!.Task.History?.Count ?? 0;
+            var expected = chunkBytes == 0 ? 1 : chunks + 1;
+            if (history != expected) throw new InvalidOperationException($"Expected {expected} history messages, got {history}.");
+        }
+        else if (!warmUp)
         {
             var parts = task.Artifacts?.Sum(a => a.Parts.Count) ?? 0;
             if (parts != chunks) throw new InvalidOperationException($"Expected {chunks} parts, got {parts}.");
@@ -163,6 +205,28 @@ internal static class Bench
 }
 
 internal sealed record ChunkPlan(int Chunks, int ChunkBytes, bool Paced);
+
+/// <summary>
+/// Sends <see cref="ChunkPlan.Chunks"/> status updates (working), each with a message of <see cref="ChunkPlan.ChunkBytes"/>
+/// random letters, or with no message when that is 0, then completes. Each update is its own commit (never batched).
+/// </summary>
+internal sealed class StatusAgent(ChunkPlan plan) : IAgentExecutor
+{
+    public async Task ExecuteAsync(AgentRequestContext context, TaskUpdater updater, CancellationToken ct)
+    {
+        var random = new Random(42);
+        for (var i = 0; i < plan.Chunks; i++)
+        {
+            var text = plan.ChunkBytes == 0 ? null : string.Create(plan.ChunkBytes, random, static (span, r) =>
+            {
+                for (var j = 0; j < span.Length; j++) span[j] = (char)('a' + r.Next(26));
+            });
+            await updater.StartWorkAsync(text, ct);
+        }
+
+        await updater.CompleteAsync(cancellationToken: ct);
+    }
+}
 
 /// <summary>
 /// Streams one artifact in <see cref="ChunkPlan.Chunks"/> chunks as fast as it can (or 1 ms apart when
