@@ -39,7 +39,7 @@ The delivery span continues the trace of the agent run that produced the event. 
 
 ## Propagation
 
-- The client transports send the current span as W3C `traceparent` and `tracestate` on JSON-RPC, HTTP+JSON and gRPC (as metadata).
+- The client transports send the current span as W3C `traceparent` and `tracestate` on JSON-RPC, HTTP+JSON and gRPC (as metadata), the v0.3 transports included.
 - The server reads both headers on all three bindings into `ServerCallContext.TraceParent`. Client and server spans then share one trace.
 - A webhook POST carries the `traceparent` of its delivery span.
 - A `traceparent` you set in `A2ARequestOptions.Headers` replaces the one the SDK wrote.

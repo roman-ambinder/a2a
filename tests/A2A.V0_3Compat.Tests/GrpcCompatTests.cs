@@ -185,6 +185,67 @@ public class GrpcCompatTests
         }
     }
 
+    /// <summary>Records the <c>traceparent</c> and <c>tracestate</c> metadata of each gRPC request.</summary>
+    private sealed class TraceHeaders : DelegatingHandler
+    {
+        public System.Collections.Concurrent.ConcurrentQueue<(string? Parent, string? State)> Seen { get; } = new();
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Seen.Enqueue((One(request, "traceparent"), One(request, "tracestate")));
+            return base.SendAsync(request, cancellationToken);
+        }
+
+        private static string? One(HttpRequestMessage request, string name) =>
+            request.Headers.TryGetValues(name, out var values) ? Assert.Single(values) : null;
+    }
+
+    [Fact]
+    public async Task The_v03_grpc_client_sends_the_client_span_as_traceparent_and_tracestate()
+    {
+        await using var host = await StartAsync();
+        var trace = new TraceHeaders { InnerHandler = new UserHandler("alice") { InnerHandler = host.App.GetTestServer().CreateHandler() } };
+        var card = V03Host.DefaultCard();
+        card.SupportedInterfaces = [new AgentInterface { Url = "http://localhost/", ProtocolBinding = ProtocolBindings.Grpc, ProtocolVersion = "0.3" }];
+        var client = V03CompatClientFactory.Create(card, new HttpClient(), new A2AClientOptions { SupportedBindings = [ProtocolBindings.Grpc], MaxRetries = 0 }
+            .UseGrpcV03(new global::Grpc.Net.Client.GrpcChannelOptions { HttpHandler = trace }));
+
+        var stopped = new System.Collections.Concurrent.ConcurrentQueue<System.Diagnostics.Activity>();
+        using var listener = new System.Diagnostics.ActivityListener
+        {
+            ShouldListenTo = s => s.Name == A2A.Diagnostics.A2ATelemetry.ClientSourceName,
+            Sample = (ref System.Diagnostics.ActivityCreationOptions<System.Diagnostics.ActivityContext> _) =>
+                System.Diagnostics.ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = stopped.Enqueue,
+        };
+        System.Diagnostics.ActivitySource.AddActivityListener(listener);
+
+        using (var parent = new System.Diagnostics.Activity("caller") { TraceStateString = "vendor=v03" }.SetIdFormat(System.Diagnostics.ActivityIdFormat.W3C).Start())
+        {
+            await client.SendMessageAsync("hello");
+            await foreach (var _ in client.SendStreamingMessageAsync(new SendMessageRequest { Message = Message.FromUser("task") })) { }
+        }
+
+        var seen = trace.Seen.ToArray();
+        Assert.Equal(2, seen.Length);
+        foreach (var (operation, headers) in new[] { ("SendMessage", seen[0]), ("SendStreamingMessage", seen[1]) })
+        {
+            Assert.NotNull(headers.Parent);
+            var parts = headers.Parent!.Split('-');
+            var span = Assert.Single(stopped, a => a.OperationName == operation && a.SpanId.ToHexString() == parts[2]);
+            Assert.Equal($"00-{span.TraceId.ToHexString()}-{span.SpanId.ToHexString()}-01", headers.Parent);
+            Assert.Equal("vendor=v03", span.TraceStateString);
+            Assert.Equal(span.TraceStateString, headers.State);
+        }
+
+        // A traceparent in A2ARequestOptions.Headers replaces the one the SDK wrote, as on the other transports.
+        const string own = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+        var options = new A2ARequestOptions();
+        options.Headers["traceparent"] = own;
+        await client.SendMessageAsync(new SendMessageRequest { Message = Message.FromUser("hello") }, options);
+        Assert.Equal(own, trace.Seen.Last().Parent);
+    }
+
     [Fact]
     public async Task The_v03_grpc_client_sends_streams_and_manages_push_configs()
     {
