@@ -1,4 +1,5 @@
 using A2A.Client;
+using A2A.Json;
 using A2A.Server;
 using A2A.Server.Push;
 using A2A.Server.Storage;
@@ -11,28 +12,40 @@ namespace A2A.Benchmarks;
 ///     ADR-004: the copies the engine makes of a task's lists for each event. One long task per operation, sent with a
 ///     blocking SendMessage. Each benchmark has a twin with half the events: when the copies are O(1) per event, doubling the
 ///     events about doubles the allocation; with an O(n) copy per event it grows about 3.5 times.
+///     The <c>Serialized</c> cases store through a wrapper that also serializes the task on each commit, as a durable store
+///     that writes the task JSON per event does (Postgres): they measure what serializing a task whose lists are shared
+///     costs on top of the engine.
 /// </summary>
 [MemoryDiagnoser]
 public class TaskCopyBenchmark
 {
     private BenchHost _statusHost = null!;
     private BenchHost _appendHost = null!;
+    private BenchHost _statusSerializedHost = null!;
+    private BenchHost _appendSerializedHost = null!;
 
     [GlobalSetup]
     public async Task Setup()
     {
         _statusHost = await BenchHost.StartAsync<StatusAgent>();
         // The in-memory store without IBatchTaskCommit, so every append is its own commit (no queueing or timer needed).
-        _appendHost = await BenchHost.StartAsync<AppendAgent>(services: s => s.AddSingleton<TaskStore>(sp =>
-            new SingleCommitStore(new InMemoryTaskStore((InMemoryEventStore)sp.GetRequiredService<EventStore>(),
-                (InMemoryPushOutbox)sp.GetRequiredService<PushOutbox>()))));
+        _appendHost = await BenchHost.StartAsync<AppendAgent>(services: s => SingleCommit(s, false));
+        _statusSerializedHost = await BenchHost.StartAsync<StatusAgent>(services: s => SingleCommit(s, true));
+        _appendSerializedHost = await BenchHost.StartAsync<AppendAgent>(services: s => SingleCommit(s, true));
     }
+
+    private static void SingleCommit(IServiceCollection services, bool serialize) =>
+        services.AddSingleton<TaskStore>(sp =>
+            new SingleCommitStore(new InMemoryTaskStore((InMemoryEventStore)sp.GetRequiredService<EventStore>(),
+                (InMemoryPushOutbox)sp.GetRequiredService<PushOutbox>()), serialize));
 
     [GlobalCleanup]
     public async Task Cleanup()
     {
         await _statusHost.DisposeAsync();
         await _appendHost.DisposeAsync();
+        await _statusSerializedHost.DisposeAsync();
+        await _appendSerializedHost.DisposeAsync();
     }
 
     /// <summary>4,000 status updates, each with a message: the history and the timeline both grow by one per event.</summary>
@@ -50,6 +63,14 @@ public class TaskCopyBenchmark
     /// <summary>The same with 1,000 appends.</summary>
     [Benchmark]
     public Task Appends1000() => RunAsync(_appendHost, "1000");
+
+    /// <summary><see cref="StatusMessages2000" /> with the task serialized on each commit.</summary>
+    [Benchmark]
+    public Task StatusMessages2000Serialized() => RunAsync(_statusSerializedHost, "2000");
+
+    /// <summary><see cref="Appends2000" /> with the task serialized on each commit.</summary>
+    [Benchmark]
+    public Task Appends2000Serialized() => RunAsync(_appendSerializedHost, "2000");
 
     private static async Task RunAsync(BenchHost host, string count)
     {
@@ -84,14 +105,20 @@ public class TaskCopyBenchmark
         }
     }
 
-    /// <summary>The in-memory task store without <see cref="IBatchTaskCommit" />: one commit per event.</summary>
-    private sealed class SingleCommitStore(InMemoryTaskStore inner) : TaskStore, ITaskCommitLookup
+    /// <summary>
+    ///     The in-memory task store without <see cref="IBatchTaskCommit" />: one commit per event. With
+    ///     <paramref name="serialize" />, each commit also serializes the task (the bytes are dropped).
+    /// </summary>
+    private sealed class SingleCommitStore(InMemoryTaskStore inner, bool serialize) : TaskStore, ITaskCommitLookup
     {
         public ValueTask<long?> FindCommitAsync(TaskKey task, string mutationId, CancellationToken ct = default) =>
             inner.FindCommitAsync(task, mutationId, ct);
 
-        public override ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken ct = default) =>
-            inner.CommitAsync(commit, ct);
+        public override ValueTask<CommitResult> CommitAsync(TaskCommit commit, CancellationToken ct = default)
+        {
+            if (serialize) _ = A2AJson.SerializeToUtf8Bytes(commit.Record.Task);
+            return inner.CommitAsync(commit, ct);
+        }
 
         public override ValueTask<TaskRecord?> GetAsync(TaskKey key, CancellationToken ct = default) => inner.GetAsync(key, ct);
         public override ValueTask<TaskRecord> CreateAsync(TaskRecord record, CancellationToken ct = default) => inner.CreateAsync(record, ct);
