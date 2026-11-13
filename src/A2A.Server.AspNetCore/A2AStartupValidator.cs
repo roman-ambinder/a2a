@@ -2,6 +2,8 @@ using System.Runtime.CompilerServices;
 using A2A.Server.Agents;
 using A2A.Server.Pipeline;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
@@ -15,9 +17,9 @@ namespace A2A.Server.AspNetCore;
 
 /// <summary>
 ///     Registration marker and endpoint registry. <c>MapA2A</c> throws when it is missing, so the startup check cannot be
-///     skipped by mistake. Each <c>Map*</c> call records the route builder's data sources here. The validator reads them
-///     directly: the <c>EndpointDataSource</c> in DI is only filled when the web host builds its pipeline, which happens
-///     after hosted services start.
+///     skipped by mistake. Each <c>Map*</c> call records the route builder's data sources here. The startup check reads the
+///     served endpoints (the <c>EndpointDataSource</c> in DI, filled when the web host builds its pipeline); these sources,
+///     which lack the conventions of outer route groups, are only its fallback.
 /// </summary>
 internal sealed class A2AEndpointRegistry
 {
@@ -34,17 +36,6 @@ internal sealed class A2AEndpointRegistry
     ///     (v0.3 compat). False: that path answers 404.
     /// </summary>
     public bool ServeLegacyCardPath { get; set; }
-
-    public bool HasSources
-    {
-        get
-        {
-            lock (_sources)
-            {
-                return _sources.Count > 0;
-            }
-        }
-    }
 
     public void Add(ICollection<EndpointDataSource> source)
     {
@@ -120,18 +111,97 @@ internal sealed class A2AEndpointRegistry
 }
 
 /// <summary>
-///     Fail-closed startup check. Every A2A endpoint (display name starting <c>"A2A "</c>, except the Agent Card
-///     endpoints)
+///     Marks the endpoints that <c>MapA2A*</c> and <c>WithA2AStartupCheck</c> map, so the startup check finds them among
+///     the app's served endpoints, whichever route groups they sit in.
+/// </summary>
+internal sealed class A2AStartupCheckMetadata
+{
+    public static readonly A2AStartupCheckMetadata Instance = new();
+
+    private A2AStartupCheckMetadata()
+    {
+    }
+}
+
+/// <summary>
+///     Fail-closed authorization check of the A2A endpoints. Every A2A endpoint (marked by
+///     <see cref="A2AStartupCheckMetadata" />, with a display name starting <c>"A2A "</c>, except the Agent Card endpoints)
 ///     must carry authorization metadata and no <see cref="IAllowAnonymous" /> metadata, unless
-///     <see cref="A2AServerOptions.AllowAnonymous" /> is true. When no endpoint is registered yet at start (Startup-style
-///     hosting
-///     maps endpoints while the web host starts), the check runs again on <c>ApplicationStarted</c> and stops the app on
-///     failure.
-///     <see cref="A2ARequestHandler" /> also rejects anonymous callers on its own as a backstop. The same check fails the
-///     start when the Agent Card has no name (<c>AddAgentCard(...)</c> was not called).
+///     <see cref="A2AServerOptions.AllowAnonymous" /> is true. It reads the endpoints as the app serves them, with the
+///     conventions of every route group around them (an outer group's <c>RequireAuthorization()</c> or
+///     <c>AllowAnonymous()</c>): <see cref="A2AStartupCheckFilter" /> runs it once the web host built its pipeline, before
+///     the server listens.
+/// </summary>
+internal sealed class A2AEndpointAuthorizationCheck(
+    A2AEndpointRegistry registry,
+    IOptions<A2AServerOptions> options,
+    IServiceProvider services,
+    IHostEnvironment? environment = null)
+{
+    private const string Prefix = "A2A ";
+    private const string AgentCard = "A2A Agent Card";
+    private int _ran;
+
+    /// <summary>True once <see cref="Run" /> was called.</summary>
+    public bool Ran => Volatile.Read(ref _ran) == 1;
+
+    /// <summary>Throws <see cref="InvalidOperationException" /> when an A2A endpoint is open to anonymous callers.</summary>
+    public void Run()
+    {
+        Volatile.Write(ref _ran, 1);
+        if (options.Value.AllowAnonymous) return;
+        foreach (var endpoint in Endpoints())
+        {
+            var name = endpoint.DisplayName;
+            if (name is null || !name.StartsWith(Prefix, StringComparison.Ordinal)) continue;
+            if (name.StartsWith(AgentCard, StringComparison.Ordinal)) continue; // card and JWKS stay anonymous
+            if (endpoint.Metadata.GetMetadata<IAllowAnonymous>() is not null)
+                throw new InvalidOperationException(
+                    A2AStartupValidator.NoPolicy(services, environment) + " " + A2AStartupValidator.AllowAnonymousHint);
+            if (endpoint.Metadata.GetMetadata<IAuthorizeData>() is null)
+                throw new InvalidOperationException(A2AStartupValidator.NoPolicy(services, environment));
+        }
+    }
+
+    /// <summary>
+    ///     The served A2A endpoints: those in the app's <see cref="EndpointDataSource" /> with the marker. When it has
+    ///     none (a host that does not route through it), the recorded route builders' own endpoints, which lack the
+    ///     conventions of outer groups: stricter, never more lenient.
+    /// </summary>
+    private IEnumerable<Endpoint> Endpoints()
+    {
+        var served = services.GetService<EndpointDataSource>()?.Endpoints
+            .Where(e => e.Metadata.GetMetadata<A2AStartupCheckMetadata>() is not null).ToList();
+        return served is { Count: > 0 } ? served : registry.Endpoints();
+    }
+}
+
+/// <summary>
+///     Runs <see cref="A2AEndpointAuthorizationCheck" /> right after the web host built the request pipeline: the endpoints
+///     are all mapped then (also those mapped in <c>UseEndpoints</c> of a <c>Startup</c> class), and the server does not
+///     listen yet, so a failure stops the start.
+/// </summary>
+internal sealed class A2AStartupCheckFilter(A2AEndpointAuthorizationCheck check) : IStartupFilter
+{
+    public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next)
+    {
+        return app =>
+        {
+            next(app);
+            check.Run();
+        };
+    }
+}
+
+/// <summary>
+///     Fail-closed startup checks. The endpoint authorization check (<see cref="A2AEndpointAuthorizationCheck" />) runs
+///     when the web host builds its pipeline; on a host that never does, it runs on <c>ApplicationStarted</c> and stops the
+///     app on failure. <see cref="A2ARequestHandler" /> also rejects anonymous callers on its own as a backstop. This
+///     service fails the start when the Agent Card has no name (<c>AddAgentCard(...)</c> was not called).
 /// </summary>
 internal sealed class A2AStartupValidator(
     A2AEndpointRegistry registry,
+    A2AEndpointAuthorizationCheck endpointCheck,
     IOptions<A2AServerOptions> options,
     IHostApplicationLifetime lifetime,
     ILogger<A2AStartupValidator> logger,
@@ -154,14 +224,14 @@ internal sealed class A2AStartupValidator(
                $" ConfigureForDevelopment() has no effect here: the host runs as '{environment?.EnvironmentName ?? "(no host environment)"}', not Development.";
     }
 
+    internal const string AllowAnonymousHint =
+        "An A2A endpoint has AllowAnonymous() metadata, from the endpoints or from a route group around them, which turns its authorization off: remove it.";
+
     internal const string AnonymousWarning =
         "A2A endpoints allow anonymous callers. All anonymous callers share one owner and can read each other's tasks.";
 
     internal const string NoCardNameMessage =
         "The Agent Card has no name. Call AddAgentCard(...) on the A2A builder or set A2AServerOptions.AgentCard.";
-
-    private const string Prefix = "A2A ";
-    private const string AgentCard = "A2A Agent Card";
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -176,24 +246,21 @@ internal sealed class A2AStartupValidator(
         if (options.Value.TreatMissingVersionAsCurrent && environment?.IsDevelopment() != true)
             AspNetCoreLog.MissingVersionTreatedAsCurrent(logger);
 
-        if (!registry.HasSources)
+        // The endpoints are checked as they are served, once the web host built its pipeline (A2AStartupCheckFilter).
+        // A host that never builds one falls back to this, after the start.
+        lifetime.ApplicationStarted.Register(() =>
         {
-            lifetime.ApplicationStarted.Register(() =>
+            if (endpointCheck.Ran) return;
+            try
             {
-                try
-                {
-                    Check();
-                }
-                catch (InvalidOperationException ex)
-                {
-                    AspNetCoreLog.StoppingApplication(logger, ex, ex.Message);
-                    lifetime.StopApplication();
-                }
-            });
-            return;
-        }
-
-        Check();
+                endpointCheck.Run();
+            }
+            catch (InvalidOperationException ex)
+            {
+                AspNetCoreLog.StoppingApplication(logger, ex, ex.Message);
+                lifetime.StopApplication();
+            }
+        });
     }
 
     public Task StopAsync(CancellationToken cancellationToken)
@@ -329,17 +396,4 @@ internal sealed class A2AStartupValidator(
                || (System.Net.IPAddress.TryParse(host.Trim('[', ']'), out var ip) && System.Net.IPAddress.IsLoopback(ip));
     }
 
-    private void Check()
-    {
-        foreach (var endpoint in registry.Endpoints())
-        {
-            var name = endpoint.DisplayName;
-            if (name is null || !name.StartsWith(Prefix, StringComparison.Ordinal)) continue;
-            if (name.StartsWith(AgentCard, StringComparison.Ordinal)) continue; // card and JWKS stay anonymous
-            if (!options.Value.AllowAnonymous
-                && (endpoint.Metadata.GetMetadata<IAuthorizeData>() is null ||
-                    endpoint.Metadata.GetMetadata<IAllowAnonymous>() is not null))
-                throw new InvalidOperationException(NoPolicy(services, environment));
-        }
-    }
 }

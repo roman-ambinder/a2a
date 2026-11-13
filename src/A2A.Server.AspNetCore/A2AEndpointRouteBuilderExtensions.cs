@@ -3,6 +3,7 @@ using A2A.Server.AspNetCore.Operations;
 using A2A.Server.Push;
 using A2A.Server.Storage;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
@@ -33,6 +34,8 @@ public static class A2AServiceCollectionExtensions
         services.Replace(ServiceDescriptor.Singleton<IAgentCardProvider, AgentCardCompleter>());
         services.TryAddSingleton<A2AOperationTable>();
         services.TryAddSingleton<ITenantResolver, RouteTenantResolver>();
+        services.TryAddSingleton<A2AEndpointAuthorizationCheck>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IStartupFilter, A2AStartupCheckFilter>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, A2AStartupValidator>());
         services.AddA2ARateLimiting();
         return services;
@@ -314,7 +317,9 @@ public static partial class A2AEndpointRouteBuilderExtensions
     private static void ApplyRateLimiting<TBuilder>(IEndpointRouteBuilder endpoints, TBuilder group)
         where TBuilder : IEndpointConventionBuilder
     {
-        // Every Map* method passes here, so this is also where declared card schemes protect endpoints by default.
+        // Every Map* method passes here, so this is also where the endpoints are marked for the startup check (which finds
+        // them among the served endpoints, inside any route group) and where declared card schemes protect them by default.
+        group.WithMetadata(A2AStartupCheckMetadata.Instance);
         A2ACardAuthenticationExtensions.ApplyDefault(endpoints, group);
         var services = endpoints.ServiceProvider;
         if (services.GetService<A2ARateLimitMarker>() is null) return;
@@ -390,8 +395,8 @@ public static partial class A2AEndpointRouteBuilderExtensions
     private static partial Regex TenantSegment();
 
     /// <summary>
-    ///     Records the route builder's data sources for the startup check. Throws when <c>AddA2AServerAspNetCore()</c> was not
-    ///     called.
+    ///     Records the route builder's data sources (the startup check's fallback when the app's served endpoints are not
+    ///     available). Throws when <c>AddA2AServerAspNetCore()</c> was not called.
     ///     Every A2A mapping method (also the gRPC binding's) calls it.
     /// </summary>
     internal static void RequireRegistration(IEndpointRouteBuilder endpoints)
