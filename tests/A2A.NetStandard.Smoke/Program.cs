@@ -546,6 +546,34 @@ internal static class Program
         Check(artifact.GetText() == "a" && longer.GetText() == "abc" && branch.GetText() == "ax", "artifact parts were shared wrongly");
         var back = A2AJson.Deserialize<AgentTask>(A2AJson.Serialize(shared))!;
         Check(A2AJson.Serialize(back) == A2AJson.Serialize(plain), "a round trip changed the task");
+
+        // The JSON contract writes the shared lists without building them (A2AJson's shared-list properties, and the
+        // Artifact created by a delegate); the bytes match plain lists, also in the 1.0 shape, and reads give lists.
+        var plainLonger = new Artifact { ArtifactId = "a", Parts = new List<Part>(longer.Parts) };
+        var sharedLonger = artifact.CopyWithParts(new[] { Part.FromText("b") });
+        sharedLonger.AppendParts(new[] { Part.FromText("c") });
+        Check(A2AJson.Serialize(sharedLonger) == A2AJson.Serialize(plainLonger), "shared parts serialize differently");
+        var next2 = shared.CopyForUpdate();
+        next2.Artifacts = new List<Artifact> { sharedLonger };
+        var plain2 = A2AJson.Deserialize<AgentTask>(A2AJson.Serialize(next2));
+        Check(JsonSerializer.Serialize(next2, A2AJson.GetTypeInfo<AgentTask>("1.0")) ==
+              JsonSerializer.Serialize(plain2, A2AJson.GetTypeInfo<AgentTask>("1.0")), "the 1.0 shape differs");
+        Check(!JsonSerializer.Serialize(next2, A2AJson.GetTypeInfo<AgentTask>("1.0")).Contains("timeline"),
+            "the 1.0 shape has the timeline");
+        Check(plain2.History!.GetType() == typeof(List<Message>) && plain2.Artifacts![0].Parts.Count == 3,
+            "a read did not give plain lists");
+        Check(A2AJson.Deserialize<Artifact>("{\"artifactId\":\"x\"}").Parts.Count == 0, "missing parts did not read as []");
+        var missingId = false;
+        try
+        {
+            A2AJson.Deserialize<Artifact>("{\"parts\":[]}");
+        }
+        catch (JsonException)
+        {
+            missingId = true;
+        }
+
+        Check(missingId, "an artifact without artifactId was read");
     }
 
     // The netstandard2.0 branches of OAuth2ClientAssertions: FromFile reads with ReadAsync(byte[], int, int) and

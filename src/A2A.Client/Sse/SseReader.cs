@@ -27,7 +27,7 @@ public sealed record SseEvent(string Data, string? EventType, string? Id)
 }
 
 /// <summary>
-///     A dispatched event whose data is still UTF-8 bytes in the reader's buffer (<see cref="SseReader.ReadFramesAsync" />
+///     A dispatched event whose data is still UTF-8 bytes in the reader's buffer (<see cref="SseReader.ReadFramesAsync(Stream, int, CancellationToken)" />
 ///     ). One
 ///     instance per stream, reused: use it before the next read.
 /// </summary>
@@ -119,10 +119,19 @@ public static class SseReader
             $"The agent sent a server-sent event larger than the limit of {maxEventBytes} bytes.");
     }
 
-    private static async IAsyncEnumerable<SseEvent> ReadCoreAsync(Stream stream, int maxEventBytes,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
+    private static IAsyncEnumerable<SseEvent> ReadCoreAsync(Stream stream, int maxEventBytes,
+        CancellationToken cancellationToken) =>
+        ReadEventsAsync(stream, maxEventBytes, null, TimeProvider.System, cancellationToken);
+
+    /// <summary>
+    ///     <see cref="ReadAsync(Stream, int, CancellationToken)" /> with the keep-alive timeout of
+    ///     <see cref="ReadFramesAsync(Stream, int, TimeSpan?, TimeProvider, CancellationToken)" />.
+    /// </summary>
+    internal static async IAsyncEnumerable<SseEvent> ReadEventsAsync(Stream stream, int maxEventBytes,
+        TimeSpan? keepAliveTimeout, TimeProvider timeProvider, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        await foreach (var frame in ReadFramesAsync(stream, maxEventBytes, cancellationToken).ConfigureAwait(false))
+        await foreach (var frame in ReadFramesAsync(stream, maxEventBytes, keepAliveTimeout, timeProvider,
+                           cancellationToken).ConfigureAwait(false))
             yield return frame.ToEvent();
     }
 
@@ -133,9 +142,22 @@ public static class SseReader
     ///     uses it at once. The transports parse JSON straight from it; <see cref="ReadAsync(Stream, CancellationToken)" />
     ///     decodes it to a <see cref="SseEvent" />.
     /// </summary>
+    internal static IAsyncEnumerable<SseFrame> ReadFramesAsync(Stream stream, int maxEventBytes,
+        CancellationToken cancellationToken) =>
+        ReadFramesAsync(stream, maxEventBytes, null, TimeProvider.System, cancellationToken);
+
+    /// <summary>
+    ///     <see cref="ReadFramesAsync(Stream, int, CancellationToken)" /> with a keep-alive timeout
+    ///     (<see cref="A2AClientOptions.StreamKeepAliveTimeout" />): once the stream has carried a comment line, a read that
+    ///     gets no bytes for <paramref name="keepAliveTimeout" /> is aborted and the read fails with an
+    ///     <see cref="IOException" />, a dropped connection. Null or infinite turns it off. Caller cancellation stays an
+    ///     <see cref="OperationCanceledException" />.
+    /// </summary>
     internal static async IAsyncEnumerable<SseFrame> ReadFramesAsync(Stream stream, int maxEventBytes,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
+        TimeSpan? keepAliveTimeout, TimeProvider timeProvider, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
+        if (keepAliveTimeout == Timeout.InfiniteTimeSpan) keepAliveTimeout = null;
+        StreamIdleTimer? idle = null; // created when the first comment arrives: one per stream
         var buffer = ArrayPool<byte>.Shared.Rent(InitialBufferSize);
         var parser = new LineParser(maxEventBytes);
         var used = 0; // high-water mark of filled bytes, cleared before the buffer goes back to the pool
@@ -207,7 +229,36 @@ public static class SseReader
                 }
 
                 cancellationToken.ThrowIfCancellationRequested();
-                var read = await stream.ReadAsync(buffer.AsMemory(end), cancellationToken).ConfigureAwait(false);
+                // A peer that has sent a keep-alive keeps sending them: from then on, silence means a dead connection.
+                if (idle is null && keepAliveTimeout is { } timeout && parser.SawComment)
+                    idle = new StreamIdleTimer(timeout, timeProvider, cancellationToken);
+                int read;
+                if (idle is null)
+                {
+                    read = await stream.ReadAsync(buffer.AsMemory(end), cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    try
+                    {
+                        read = await stream.ReadAsync(buffer.AsMemory(end), idle.Arm()).ConfigureAwait(false);
+                    }
+                    catch (Exception ex) when (idle.Expired)
+                    {
+                        throw idle.Error(ex);
+                    }
+                    catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested &&
+                                                                ex.CancellationToken != cancellationToken)
+                    {
+                        // The read saw the linked token: report the caller's, as a read without the timer does.
+                        throw new OperationCanceledException(ex.Message, ex, cancellationToken);
+                    }
+                    finally
+                    {
+                        idle.Disarm();
+                    }
+                }
+
                 if (read == 0) eof = true;
                 else end += read;
                 if (end > used) used = end;
@@ -215,6 +266,7 @@ public static class SseReader
         }
         finally
         {
+            idle?.Dispose();
             buffer.AsSpan(0, used).Clear(); // event payloads can carry secrets; do not leave them in the shared pool
             ArrayPool<byte>.Shared.Return(buffer);
             parser.Dispose();
@@ -233,6 +285,9 @@ public static class SseReader
         private bool _hasData;
         private string? _lastEventType;
         private string? _lastId;
+
+        /// <summary>True once a comment line (a keep-alive) has been read.</summary>
+        public bool SawComment { get; private set; }
 
         /// <summary>The event the last <see cref="Process" /> call dispatched. Reused; its data is valid until the next call.</summary>
         public SseFrame Frame { get; } = new();
@@ -270,7 +325,11 @@ public static class SseReader
                 return dispatched;
             }
 
-            if (line[0] == (byte)':') return false; // comment / keep-alive
+            if (line[0] == (byte)':')
+            {
+                SawComment = true; // comment / keep-alive
+                return false;
+            }
 
             var colon = line.IndexOf((byte)':');
             ReadOnlySpan<byte> field, value;

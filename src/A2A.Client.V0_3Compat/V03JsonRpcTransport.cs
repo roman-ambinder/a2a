@@ -197,7 +197,8 @@ internal sealed class V03JsonRpcTransport : HttpTransportBase, IA2ATransport, IR
         }
 
         await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-        await foreach (var evt in SseReader.ReadAsync(stream, ct).ConfigureAwait(false))
+        await foreach (var evt in SseReader.ReadEventsAsync(stream, SseReader.DefaultMaxEventBytes,
+                           Options.StreamKeepAliveTimeout, Options.TimeProvider, ct).ConfigureAwait(false))
         {
             var envelope = TryParseEnvelope(V03ClientSupport.Utf8(evt.Data)) ??
                            throw ProtocolError($"{method}: SSE event is not a JSON-RPC response.");

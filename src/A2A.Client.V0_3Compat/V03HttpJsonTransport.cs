@@ -283,7 +283,8 @@ internal sealed class V03HttpJsonTransport : HttpTransportBase, IA2ATransport, I
         if (!IsEventStream(resp)) throw ProtocolError("Expected text/event-stream.");
 
         await using var stream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-        await foreach (var evt in SseReader.ReadAsync(stream, ct).ConfigureAwait(false))
+        await foreach (var evt in SseReader.ReadEventsAsync(stream, SseReader.DefaultMaxEventBytes,
+                           Options.StreamKeepAliveTimeout, Options.TimeProvider, ct).ConfigureAwait(false))
         {
             var node = V03ClientSupport.TryParse(V03ClientSupport.Utf8(evt.Data)) ??
                        throw ProtocolError("Malformed stream event: not JSON.");

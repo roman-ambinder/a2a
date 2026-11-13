@@ -63,6 +63,10 @@ namespace A2A.Json;
 [JsonSerializable(typeof(StreamError))]
 [JsonSerializable(typeof(TimelineEntry))]
 [JsonSerializable(typeof(StreamRequest))]
+// ADR-004: the property types A2AJson.Options writes the shared task lists with (A2AJson.WriteSharedLists).
+[JsonSerializable(typeof(IReadOnlyList<Message>))]
+[JsonSerializable(typeof(IReadOnlyList<TimelineEntry>))]
+[JsonSerializable(typeof(IReadOnlyList<Part>))]
 [JsonSerializable(typeof(List<TaskArtifactUpdateEvent>))]
 [JsonSerializable(typeof(GetTaskRequest))]
 [JsonSerializable(typeof(ListTasksRequest))]

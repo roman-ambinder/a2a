@@ -93,6 +93,7 @@ public sealed class PostgresMigrationTests(PostgresFixture db)
     [
         "a2a_schema_version", "a2a_tasks", "a2a_contexts", "a2a_event_logs", "a2a_events", "a2a_push_configs", "a2a_push_outbox",
         "a2a_push_dead_letters", "a2a_idempotency", "a2a_execution_leases", "a2a_sweep_leases", "a2a_cancel_requests",
+        "a2a_artifact_parts", "a2a_task_entries",
     ];
 
     private static string NewSchema() => "t_" + Guid.NewGuid().ToString("N");
@@ -206,6 +207,31 @@ public sealed class PostgresMigrationTests(PostgresFixture db)
         Assert.False(await IndexExistsAsync(schema, "a2a_tasks_state_ix"));
         Assert.True(await TableExistsAsync(schema, "a2a_execution_leases"));
         await PostgresSchema.VerifySchemaAsync(db.DataSource, schema);
+    }
+
+    /// <summary>Migration 0008 (HistoryRows, ADR-005) runs again on a database that has it, and keeps its rows.</summary>
+    [Fact]
+    public async Task Migration_0008_is_idempotent_and_keeps_the_entry_rows()
+    {
+        db.SkipIfUnavailable();
+        var schema = NewSchema();
+        var q = Quoted(schema);
+        await PostgresSchema.EnsureSchemaAsync(db.DataSource, schema);
+        await ExecAsync($"INSERT INTO {q}.a2a_tasks (tenant, task_id, owner, context_id, state, status_ticks, version, created_ticks, updated_ticks, task, entries_layout) VALUES ('t', 'task1', 'alice', 'c1', 3, 1, 1, 1, 1, '{{}}', 1)");
+        await ExecAsync($"INSERT INTO {q}.a2a_task_entries (tenant, task_id, list, ordinal, entry) VALUES ('t', 'task1', 0, 0, '{{}}')");
+
+        var script = PostgresSchema.ScriptFor(schema, 7);
+        Assert.Contains("-- Migration 0008_task_entries.sql", script, StringComparison.Ordinal);
+        await ExecAsync(script);
+        await ExecAsync(script);
+
+        Assert.Equal(PostgresSchema.Version, await VersionAsync(schema));
+        Assert.True(await ColumnExistsAsync(schema, "a2a_tasks", "entries_layout"));
+        Assert.Equal(1L, await ScalarAsync<long>($"SELECT count(*) FROM {q}.a2a_task_entries"));
+        Assert.Equal((short)1, await ScalarAsync<short>($"SELECT entries_layout FROM {q}.a2a_tasks"));
+        // The rows go with their task.
+        await ExecAsync($"DELETE FROM {q}.a2a_tasks");
+        Assert.Equal(0L, await ScalarAsync<long>($"SELECT count(*) FROM {q}.a2a_task_entries"));
     }
 
     private static PostgresMigration Next(int offset, string name, string sql) => new(PostgresSchema.Version + offset, name, sql);

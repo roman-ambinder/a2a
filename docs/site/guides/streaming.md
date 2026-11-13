@@ -73,6 +73,19 @@ A task in `INPUT_REQUIRED` or `AUTH_REQUIRED` keeps a send stream open while the
 
 When a stream ends before a terminal event, for example at `MaxStreamDuration` or `StreamIdleTimeout`, the client treats it like a dropped connection and resumes it after the backoff. It does not resume after a terminal event or a direct message.
 
+## A connection that goes silent
+
+A NAT, proxy or load balancer can drop a connection without closing it. Nothing arrives, and without a timer the read would wait until the operating system gives up on the connection, which can take hours. The server's keep-alive comments (`KeepAliveInterval`, below) let the client tell a quiet task from a dead connection.
+
+<xref:A2A.Client.A2AClientOptions.StreamKeepAliveTimeout> is how long an SSE stream may receive nothing at all, no event and no keep-alive, before the client treats the connection as dropped:
+
+- The default is 60 seconds: four times the server's default `KeepAliveInterval` of 15 seconds, so a few late keep-alives do not count. Null or `Timeout.InfiniteTimeSpan` turns it off. Keep it above the server's interval.
+- The timer starts only after the first keep-alive comment on a connection (any SSE comment line). A peer that sends no keep-alives is never timed out, however long its task stays quiet, so the default is safe with such peers.
+- Any bytes reset it, events and keep-alives alike. It counts only while the client waits for bytes: time your code spends on an event does not count. One timer serves the whole stream.
+- When it expires, the read is aborted and the stream fails with an `IOException` whose inner exception is a `TimeoutException`. `ObserveTaskAsync` and `SendStreamingMessageAsync` (once the task id is known) treat it like any dropped connection: after the backoff they reconnect with `Last-Event-ID`, or with `lastSeenGeneration` on A2A 1.1, as described in [Follow a task](#follow-a-task). With this SDK's servers no event is lost or repeated. `SubscribeToTaskAsync` does not reconnect and throws the `IOException`.
+- Your own cancellation is still an `OperationCanceledException` with your token, and never causes a reconnect.
+- It applies to JSON-RPC and HTTP+JSON, and to the v0.3 bindings. For gRPC, see below.
+
 ## The replay buffer
 
 The event store keeps the last events of each task so that a client can resume. These options are on <xref:A2A.Server.StreamingOptions>, under `A2AServerOptions.Streaming`:
@@ -257,13 +270,16 @@ gRPC streams carry no event ids, so there is no `Last-Event-ID` resume on gRPC. 
 
 Over gRPC no frame has an event id, so no reconnect counts as progress: the five reconnect attempts are not renewed by new events. The server-side stream limits apply as on the other bindings. A custom transport can implement `IResumableTransport` to get `Last-Event-ID` resume.
 
+gRPC streams have no keep-alive messages, so `StreamKeepAliveTimeout` does not apply: a timer on a quiet gRPC stream could not tell a quiet task from a dead connection. HTTP/2 pings do that instead. A channel the SDK makes itself (no `GrpcChannelOptions` given) pings after 5 minutes without a frame from the server while a call is open, and closes the connection if the answer does not come within 20 seconds. The stream then fails with `UNAVAILABLE` and `ObserveTaskAsync` reconnects. The delay is not shorter because gRPC servers in Go, Java and C core refuse more frequent pings by default (they answer `GOAWAY` with `too_many_pings`). The SDK's own server (Kestrel) does not limit pings: with your own `GrpcChannelOptions`, set `KeepAlivePingDelay` and `KeepAlivePingTimeout` on the `SocketsHttpHandler` you pass as `HttpHandler`.
+
 ## What can go wrong
 
 - `UnsupportedOperation` on subscribe: the task is terminal. Call `GetTask`, or use `ObserveTaskAsync`, which returns the final snapshot.
 - `RATE_LIMITED` when opening a stream: too many streams for this task or caller. The error carries a retry hint of one second.
 - A resume returns a snapshot, not the missed events: the replay buffer was too small, or the task finished more than `TerminalRetention` ago.
 - Events repeat after a reconnect: the peer sends no event ids, or you use gRPC on A2A 1.0 (on 1.1 the client resumes by generation).
-- A proxy buffers the stream: the server sends `X-Accel-Buffering: no` and `Cache-Control: no-cache`. Check the proxy's own buffering settings and its idle timeout against `KeepAliveInterval`.
+- A proxy buffers the stream: the server sends `X-Accel-Buffering: no` and `Cache-Control: no-cache`. Check the proxy's own buffering settings and its idle timeout against `KeepAliveInterval`. A proxy that buffers also holds back the keep-alives: raise `StreamKeepAliveTimeout` or fix the buffering, or the client reconnects every time it expires.
+- A stream fails with an `IOException` about `StreamKeepAliveTimeout`: nothing arrived for that long after the server had sent keep-alives. The connection was dropped on the way, or the server's `KeepAliveInterval` is longer than the client's timeout.
 
 ## See also
 

@@ -291,7 +291,8 @@ public sealed class HttpJsonTransport : HttpTransportBase, IA2ATransport, IA2AEx
         await using var stream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
 #endif
         // Each event is parsed from its UTF-8 bytes in the reader's buffer: no string and no copy per event.
-        await foreach (var frame in SseReader.ReadFramesAsync(stream, SseReader.DefaultMaxEventBytes, ct)
+        await foreach (var frame in SseReader.ReadFramesAsync(stream, SseReader.DefaultMaxEventBytes,
+                           Options.StreamKeepAliveTimeout, Options.TimeProvider, ct)
                            .ConfigureAwait(false))
         {
             StreamResponse? item = null;
