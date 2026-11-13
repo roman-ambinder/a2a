@@ -4,6 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <IsPackable>false</IsPackable>
     <RootNamespace>A2A.Itk</RootNamespace>
+    <!-- run_itk.sh clones a2a-itk here and the run writes logs and a publish folder; none of it is part of the agent. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);a2a-itk/**;logs/**;publish/**;*.json</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\src\A2A.Server.AspNetCore\A2A.Server.AspNetCore.csproj" />

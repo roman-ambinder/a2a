@@ -38,7 +38,8 @@ ITK_COPY_PROTO=0
 
 # The agent is published inside the container on first spawn, only when publish/ is absent; remove it so a later run
 # cannot start an old build.
-itk_extra_cleanup() { rm -rf publish bin obj; }
+# The container writes publish/ as root, so on a Linux runner this may fail; that runner is thrown away anyway.
+itk_extra_cleanup() { rm -rf publish 2> /dev/null || echo "Could not remove itk/publish (written by the container); remove it before the next run."; }
 
 if [ ! -d a2a-itk ]; then
   git clone https://github.com/a2aproject/a2a-itk.git a2a-itk
