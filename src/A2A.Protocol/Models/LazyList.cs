@@ -45,6 +45,13 @@ internal struct LazyList<T>
         return Interlocked.CompareExchange(ref _list, built, null) ?? built;
     }
 
+    /// <summary>
+    ///     The content as a read-only list, without building the public list: the list when it exists, else the shared
+    ///     version, else null (the property is null). For the JSON contract, which writes the property from it
+    ///     (<c>A2AJson</c>): serializing an instance never builds its lists. The caller must not keep it past its read.
+    /// </summary>
+    public IReadOnlyList<T>? View => Volatile.Read(ref _list) ?? (IReadOnlyList<T>?)Volatile.Read(ref _shared);
+
     /// <summary>Sets the public property: the list, and no shared version.</summary>
     public void Set(List<T>? value)
     {

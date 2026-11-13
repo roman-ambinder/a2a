@@ -92,3 +92,6 @@ A2A.Client.A2AClientOptions.RequireExactProtocolVersion.get -> bool
 A2A.Client.A2AClientOptions.RequireExactProtocolVersion.set -> void
 A2A.Client.A2AClientOptions.ReconcileGenerationGaps.get -> bool
 A2A.Client.A2AClientOptions.ReconcileGenerationGaps.set -> void
+A2A.Client.A2AClientOptions.StreamKeepAliveTimeout.get -> System.TimeSpan?
+A2A.Client.A2AClientOptions.StreamKeepAliveTimeout.set -> void
+static readonly A2A.Client.A2AClientOptions.DefaultStreamKeepAliveTimeout -> System.TimeSpan

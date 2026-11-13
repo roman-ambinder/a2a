@@ -93,7 +93,11 @@ public static class A2AJson
         return CreateOptions(false);
     }
 
-    private static JsonSerializerOptions CreateOptions(bool hideV11)
+    /// <summary>
+    ///     The shared options. <paramref name="writeSharedLists" /> false leaves out <see cref="WriteSharedLists" />, so the
+    ///     task lists are written through their public getters (the contract before it): tests compare the two.
+    /// </summary>
+    internal static JsonSerializerOptions CreateOptions(bool hideV11, bool writeSharedLists = true)
     {
         var o = new JsonSerializerOptions(JsonSerializerDefaults.Web)
         {
@@ -110,7 +114,9 @@ public static class A2AJson
 #endif
         o.Converters.Add(new TimestampConverter());
         // The generated context is the only metadata source: no reflection fallback, so unknown types throw NotSupportedException.
-        var resolver = A2AJsonContext.Default.WithAddedModifier(RelaxRequired);
+        var resolver = writeSharedLists
+            ? A2AJsonContext.Default.WithAddedModifier(WriteSharedLists).WithAddedModifier(RelaxRequired)
+            : A2AJsonContext.Default.WithAddedModifier(RelaxRequired);
         o.TypeInfoResolver = hideV11 ? resolver.WithAddedModifier(HideV11Members) : resolver;
         o.MakeReadOnly();
         return o;
@@ -122,6 +128,79 @@ public static class A2AJson
         foreach (var p in info.Properties)
             if (Array.IndexOf(names, p.Name) >= 0)
                 p.ShouldSerialize = static (_, _) => false;
+    }
+
+    /// <summary>
+    ///     ADR-004: <see cref="AgentTask.History" />, <see cref="AgentTask.Timeline" /> and <see cref="Artifact.Parts" />
+    ///     build their <see cref="List{T}" /> on the first read, and the generated contract reads them through those
+    ///     getters, so serializing a version of a task would build every list of it. This replaces each of the three
+    ///     properties with one of the same JSON name, place and settings whose value is an <see cref="IReadOnlyList{T}" />:
+    ///     the list when it exists, else the shared version (<see cref="LazyList{T}.View" />). The array is written by the
+    ///     same element converter, so the bytes do not change. Reading gets a <see cref="List{T}" /> (what the generated
+    ///     converter makes for <see cref="IReadOnlyList{T}" />) and sets the public property with it, as before.
+    /// </summary>
+    /// <remarks>
+    ///     The new properties come from <see cref="JsonMetadataServices.CreatePropertyInfo{T}" />, the trimming and AOT safe
+    ///     factory the generated code uses (<see cref="JsonTypeInfo.CreateJsonPropertyInfo(Type, string)" /> needs reflection).
+    ///     <see cref="Artifact.Parts" /> is a C# <c>required</c> member, which the generated contract binds as a constructor
+    ///     argument of its own type; the replacement cannot bind to it, so <see cref="Artifact" /> is created by a plain
+    ///     delegate instead, and every member, <c>parts</c> included, is set after creation. <c>artifactId</c> stays
+    ///     JSON-required, and <see cref="IJsonOnDeserialized" /> still runs.
+    /// </remarks>
+    private static void WriteSharedLists(JsonTypeInfo info)
+    {
+        if (info.Kind != JsonTypeInfoKind.Object) return;
+        if (info.Type == typeof(AgentTask))
+        {
+            ReplaceList<AgentTask, Message>(info, "history", nameof(AgentTask.History),
+                static t => t.HistoryStore.View, static (t, v) => t.History = v);
+            ReplaceList<AgentTask, TimelineEntry>(info, "timeline", nameof(AgentTask.Timeline),
+                static t => t.TimelineStore.View, static (t, v) => t.Timeline = v);
+        }
+        else if (info.Type == typeof(Artifact))
+        {
+            ReplaceList<Artifact, Part>(info, "parts", nameof(Artifact.Parts),
+                static a => a.PartsStore.View, static (a, v) => a.Parts = v!);
+            // Both are set from the JSON after creation; a missing "parts" leaves null, which OnDeserialized makes [].
+            info.CreateObject = static () => new Artifact { ArtifactId = null!, Parts = null! };
+        }
+    }
+
+    private static void ReplaceList<TModel, T>(JsonTypeInfo info, string name, string memberName,
+        Func<TModel, IReadOnlyList<T>?> get, Action<TModel, List<T>?> set)
+    {
+        var properties = info.Properties;
+        for (var i = 0; i < properties.Count; i++)
+        {
+            var old = properties[i];
+            if (old.Name != name) continue;
+            var values = new JsonPropertyInfoValues<IReadOnlyList<T>?>
+            {
+                IsProperty = true,
+                IsPublic = true,
+                DeclaringType = typeof(TModel),
+                Getter = obj => get((TModel)obj),
+                // The generated IReadOnlyList<T> converter reads into a List<T>; anything else is copied into one.
+                Setter = (obj, value) => set((TModel)obj, value is null ? null : value as List<T> ?? [.. value]),
+                PropertyName = memberName,
+                JsonPropertyName = old.Name
+            };
+            var replacement = JsonMetadataServices.CreatePropertyInfo(info.Options, values);
+            replacement.IsRequired = old.IsRequired;
+            replacement.Order = old.Order;
+            replacement.NumberHandling = old.NumberHandling;
+            replacement.ObjectCreationHandling = old.ObjectCreationHandling;
+            replacement.ShouldSerialize = old.ShouldSerialize;
+            replacement.AttributeProvider = old.AttributeProvider;
+#if NET
+            replacement.IsGetNullable = old.IsGetNullable;
+            replacement.IsSetNullable = old.IsSetNullable;
+#endif
+            properties[i] = replacement;
+            return;
+        }
+
+        throw new InvalidOperationException($"The generated contract of {typeof(TModel).Name} has no '{name}' property.");
     }
 
     /// <summary>A <see cref="JsonTypeInfo" /> modifier that clears <c>IsRequired</c> on <see cref="OptionalOnWire" /> members.</summary>

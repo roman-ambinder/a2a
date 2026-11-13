@@ -94,7 +94,7 @@ The list copy explains most of what the server allocates. A status update with a
 **Who pays, and when:**
 - **In-memory store, nobody reading:** O(1) per event, amortized. This is the prototype's 0.194 MB row, against 64.240 MB.
 - **A reader of a version** (`GetTask`, a resubscribe snapshot): O(n) once for that version. Today it costs nothing, because the list already exists.
-- **A store that serializes on each commit:** the serializer calls the getter, so every version is materialized. That is the "+ `ToList()` per event" row: 64.434 MB and 26.833 ms, against 64.240 MB and 9.893 ms today. Allocation stays the same order as today. The time can be up to about 2.7 times higher in the list operation alone, because the next copy re-wraps the list. The prototype's lazy `yield` enumerator inflates that figure, so a real implementation needs a benchmark. These stores already write O(n) bytes per commit. For Postgres the fix is a store change (ADR-003 option C), not this one. A follow-up could let the source-generated serializer enumerate the buffer without materializing it, but that is not checked yet.
+- **A store that serializes on each commit:** the serializer calls the getter, so every version is materialized. That is the "+ `ToList()` per event" row: 64.434 MB and 26.833 ms, against 64.240 MB and 9.893 ms today. Allocation stays the same order as today. The time can be up to about 2.7 times higher in the list operation alone, because the next copy re-wraps the list. The prototype's lazy `yield` enumerator inflates that figure, so a real implementation needs a benchmark. These stores already write O(n) bytes per commit. For Postgres the fix is a store change (ADR-003 option C), not this one. A follow-up could let the source-generated serializer enumerate the buffer without materializing it, but that is not checked yet. (Done: see "Follow-up: serializing without building the lists" under "Results".)
 
 | Dimension | Assessment |
 |---|---|
@@ -134,7 +134,11 @@ Today 4,000 status messages cost about 150 MB of short-lived allocation and 0.18
 - **Harder:** `AgentTask` and `Artifact` get internal state that tests must cover. The cases are a concurrent first read, a fork from an old version, a set after a read, and JSON round-trips on both targets.
 - **To revisit:**
   - Option A before 1.0.
-  - History and timeline rows for Postgres (the same idea as ADR-003 option C), if status-heavy tasks show up in WAL.
+  - History and timeline rows for Postgres (the same idea as ADR-003 option C), if status-heavy tasks show up in WAL. Proposed in [ADR-005](0005-history-and-timeline-rows.md), behind `PostgresStoreOptions.HistoryRows`.
+  - The paths that still read the getters and so build the lists (see the follow-up): the gRPC `DirectMapper` (stream
+    events and send responses that carry a task), the v0.3 codec, and the server code that shapes a task for a response.
+    Each would need a public, additive way to read a list without building it, because the packages do not share
+    internals.
 
 ## Results
 
@@ -143,7 +147,7 @@ Built as decided. What differs from the sketch in option B:
 - **The additive methods append in place on a copy the caller owns**, instead of a `CopyForUpdate` overload that takes the new history message and timeline entry: `ModelCopies.AppendToHistory(this AgentTask, Message)`, `AppendToTimeline(this AgentTask, TimelineEntry, int maxEntries = 0)` (experimental, like `TimelineEntry`) and `AppendParts(this Artifact, IEnumerable<Part>)`. Each does what `(task.History ??= []).Add(m)`, the timeline trim and `Parts.AddRange` did, without building the list. The follow-up commit (`A2ARequestHandler`) adds the history message first and the timeline entry later, once it knows the generation, and the batch path adds more parts to the artifact copy it already owns, so one method per list fits every call site. `CopyForUpdate` and `CopyWithParts` keep their signatures and become O(1) in the list lengths.
 - **The timeline trim keeps a start offset.** A version of the shared buffer is (array, start, count); `MaxTimelineEntries` moves the start. A growth copies only the kept entries into an array twice their count, so with the 1000-entry cap the dropped prefix costs one 1000-entry copy per 1000 appends. Building a new list on each trim would have cost a 1000-entry copy per event (about 32 MB for 4,000 events), more than the whole target.
 - **Thread safety.** A slot of the shared array is written once, by the appender that claimed it with a compare-and-swap on the array's high-water mark, before the version that sees it exists. Only a version that ends at the mark can claim; a fork from an older version, a second append from the same version, or an append that does not fit, copies its own items. A version never reads past its own count, so it never sees a slot it did not have when it was made. The first read of a property builds a `List<T>` and publishes it with `Interlocked.CompareExchange`: concurrent first readers get the same list, and from then on that list is the instance's content (a copy copies it once, O(n)). The setter replaces both.
-- **Serializing stores** read every list of every version, so they build each one: O(n) per commit, as before. Measured with an in-process store that serializes the task on each commit (a scratch run, not in the suite): 1,000 status messages 292.50 MB before, 300.54 MB after; 2,000: 981.33 MB before, 1,008.60 MB after (+3%, about the same time). The serializer's own output dominates.
+- **Serializing stores** read every list of every version, so they build each one: O(n) per commit, as before. (The follow-up below removes that build.) Measured with an in-process store that serializes the task on each commit (a scratch run, not in the suite): 1,000 status messages 292.50 MB before, 300.54 MB after; 2,000: 981.33 MB before, 1,008.60 MB after (+3%, about the same time). The serializer's own output dominates.
 
 `TaskCopyBenchmark`, `--job short`, the same 4-core dev machine (not the CI runner), before (`88b2a55`, the benchmark alone) and after:
 
@@ -156,6 +160,74 @@ Built as decided. What differs from the sketch in option B:
 | `StreamingTaskBenchmark.ThousandEvents` | 2.80 MB, 6.1 ms | 2.70 MB, 6.4 ms | −3.5% |
 
 Doubling the events now multiplies the allocation by 2.03 (status) and 2.09 (appends), against 3.0 and 3.1 before. 4,000 status messages allocate 13.70 MB, under the 20 MB target. The status case allocates less than the review's 143 MB before the change too, because `MaxTimelineEntries` already bounded the timeline copy at 1000 entries.
+
+### Follow-up: serializing without building the lists
+
+The "To revisit" item of option B, built. `A2AJson` serializes a task without building its lists, and the bytes do not
+change.
+
+- **How.** `A2AJson.Options` (and `V10Options`, `OptionsFor`, `CreateOptions`) add a contract modifier,
+  `WriteSharedLists` (`src/A2A.Protocol/Json/A2AJson.cs`). It replaces the generated `history` and `timeline` of
+  `AgentTask` and `parts` of `Artifact` with properties of the same JSON name, place, `IsRequired` and attribute
+  provider, typed `IReadOnlyList<T>`. Their getter returns `LazyList<T>.View`: the list when it exists, else the shared
+  `AppendList<T>` version (now an `IReadOnlyList<T>`), else null. The generated `IReadOnlyList<T>` converter writes the
+  array with the same element converter as the `List<T>` one, so the bytes are the same; reading makes a `List<T>`, and
+  the setter sets the public property with it, as before. The public property types stay `List<T>`: no API change.
+- **Why this shape.** The serializer only sees a value through the property's getter, and the getter must return a
+  `List<T>`, so the property has to be replaced, not just given a converter. A second, write-only property of the same
+  name is refused (`JsonTypeInfo` rejects two properties with one name, even if one only reads). `[JsonIgnore]` on the
+  public property plus an internal `[JsonInclude]` one would have done it in the generated code, but a
+  `JsonSerializerContext` in another assembly cannot see internal members, so a user context that includes `AgentTask`
+  would silently drop the history. A converter for the whole `AgentTask` would have to write every member by hand and
+  would lose the `V10Options` modifier, which works on the contract's properties. The replacements are made with
+  `JsonMetadataServices.CreatePropertyInfo`, the factory the generated code calls, which is trimming and AOT safe:
+  `JsonTypeInfo.CreateJsonPropertyInfo` is marked `RequiresUnreferencedCode` and `RequiresDynamicCode`. The three
+  `IReadOnlyList<T>` types are added to `A2AJsonContext`.
+- **`Artifact` is created differently.** `Parts` is a C# `required` member, and the generated contract binds required
+  members as constructor arguments by name and type. The `IReadOnlyList<Part>` property cannot bind to the
+  `List<Part>` argument, so the modifier sets `CreateObject` (a public setting that turns the argument path off), and
+  `parts`, like every member, is set after the object is created. `artifactId` stays JSON-required, a missing `parts`
+  still reads as `[]` (`IJsonOnDeserialized`), and valid JSON reads into the same models as before.
+- **What changed in a failed read.** The same exception, at the same path and position. The text of a conversion error
+  can name another type: `` IReadOnlyList`1[A2A.Message] `` for a `history` that is not an array, where it said
+  `` List`1[A2A.Message] ``; and for an `artifactId` that is not a string, `System.String` where it said `A2A.Artifact`.
+  Where the message reaches a caller (the JSON-RPC and REST endpoints quote it in invalid-params errors), it can read
+  differently. `SharedListJsonTests` records both.
+- **Covered paths.** Every serialization through `A2AJson`'s options: `Serialize`, `SerializeToUtf8Bytes`,
+  `SerializeToElement`, `JsonSerializer.SerializeAsync` with `A2AJson.GetTypeInfo`, `StreamResponse` and
+  `TaskResponse`, `EventEncoder.Encode` and `MeasureUtf8`, and the gRPC `ProtoMapper` ProtoJSON path (it serializes
+  the model with `A2AJson` first). The Postgres store's `A2AJson.Serialize(task)` is one of them.
+- **Not covered.** Code that reads the getters: the gRPC `DirectMapper` (`src/A2A.Grpc/DirectMapper.cs:396-407`,
+  `483`, for stream events and send responses), the v0.3 codec (`src/A2A.V0_3Compat/V03Codec.cs:152`, `187`), the
+  response shaping in the server, and a user's own `JsonSerializerContext` or reflection serializer. They build the
+  lists as before.
+- **Tests.** `tests/A2A.Tests/SharedListJsonTests.cs` compares the bytes with the getter contract (the options without
+  the modifier, `A2AJson.CreateOptions(hideV11, writeSharedLists: false)`) for every list state (null, empty, built,
+  shared, trimmed by `KeepLast`, forked, changed by the owner after a read, set) and for 20 random runs of 300 updates,
+  in both protocol shapes; checks that no write path builds a list; compares reads of valid and invalid JSON; checks
+  the member order and settings; and writes old versions while another thread appends and forks. The netstandard smoke
+  test checks artifacts and the 1.0 shape too. The AOT publish of `samples/EchoAgent` has no trim or AOT warning, and
+  the smoke test passes against the native binary.
+
+`TaskCopyBenchmark` with the two new `Serialized` cases (the single-commit in-memory store, wrapped so each commit also
+runs `A2AJson.SerializeToUtf8Bytes` on the task), `--job short`, the same 4-core dev machine, one run each. Before is
+`cbaf4b3` (the benchmark alone), after is the change:
+
+| Benchmark | Before | After | Change |
+|---|---:|---:|---:|
+| `StatusMessages2000Serialized` | 1,008.63 MB, 3,259.8 ms | 953.87 MB, 3,607.4 ms | −5.4% |
+| `Appends2000Serialized` | 72.50 MB, 181.6 ms | 40.21 MB, 196.6 ms | −44.5% |
+| `StatusMessages4000` | 13.47 MB, 38.5 ms | 13.60 MB, 39.6 ms | +1.0% |
+| `StatusMessages2000` | 6.72 MB, 14.5 ms | 6.76 MB, 13.5 ms | +0.6% |
+| `Appends2000` | 5.62 MB, 10.1 ms | 5.44 MB, 10.7 ms | −3.2% |
+| `Appends1000` | 2.82 MB, 8.2 ms | 2.29 MB, 12.4 ms | −18.8% |
+| `StreamingTaskBenchmark.ThousandEvents` | 2.68 MB, 4.4 ms | 2.68 MB, 4.9 ms | 0% |
+
+The status case still allocates about 1 GB, because the JSON of 2,000 versions of a growing task is that large: what
+the change removes is the list builds and the copies that re-wrap them (about 54 MB). For the appends, where each part
+is small, the builds were almost half. The cases that do not serialize do not change beyond noise (the `Appends1000`
+drop is noise: the earlier ADR-004 run measured 2.69 MB). Times are noisy on this machine: the error of the
+`StatusMessages2000Serialized` mean was ±2.2 s before and ±11.4 s after.
 
 ## Action items
 
@@ -171,3 +243,7 @@ Doubling the events now multiplies the allocation by 2.03 (status) and 2.09 (app
    - Re-run `tests/A2A.Benchmarks.Postgres` to confirm the serializing path is no worse.
 4. [x] **Versioning.** Option B is additive: a minor version, a `CHANGELOG.md` entry at release, and no analyzer. An analyzer and code fix in `src/A2A.Analyzers` / `A2A.Analyzers.CodeFixes` would only help option A, by rewriting `.Add` calls. It is not needed here.
 5. [x] **Docs.** Item 2 shipped, so the durable-stores guide describes the shipped cost: O(1) per event in the engine, O(n) once per version whose lists are read.
+6. [x] **Follow-up: serialize without building the lists.** See "Follow-up" under "Results". The durable-stores guide
+   says `A2AJson` does not build the lists. `StatusMessages2000Serialized` and `Appends2000Serialized` are new: like
+   item 1, `baseline.json` needs their entries from a CI run of this branch, and until then the benchmarks job fails on
+   them.
