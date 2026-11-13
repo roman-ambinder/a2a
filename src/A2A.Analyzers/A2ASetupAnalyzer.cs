@@ -35,12 +35,13 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
 
     /// <summary>
     ///     A2A0002 when the A2A builder has a policy (<c>AddApiKeyAuthentication()</c>, <c>RequirePolicy(...)</c>, ...) but
-    ///     the endpoints have <c>AllowAnonymous()</c>: the policy goes only on endpoints without authorization metadata, so
-    ///     it is kept off them, and the startup check refuses the <c>IAllowAnonymous</c> metadata.
+    ///     the endpoints have <c>AllowAnonymous()</c>, on them or from an outer group: the policy goes only on endpoints
+    ///     without authorization metadata, so it is kept off them, and the startup check refuses the <c>IAllowAnonymous</c>
+    ///     metadata.
     /// </summary>
     public static readonly DiagnosticDescriptor AnonymousEndpoints = new(
         "A2A0002", "A2A endpoints need authorization",
-        "'{0}' maps A2A endpoints with AllowAnonymous(), so the A2A builder's policy is not put on them and the app refuses to start. Remove AllowAnonymous() from the endpoints, or allow anonymous callers on purpose (A2AServerOptions.AllowAnonymous or ConfigureForDevelopment()).",
+        "'{0}' maps A2A endpoints with AllowAnonymous(), so the A2A builder's policy is not put on them and the app refuses to start. Remove AllowAnonymous() from the endpoints and from the route groups around them, or allow anonymous callers on purpose (A2AServerOptions.AllowAnonymous or ConfigureForDevelopment()).",
         "A2A.Hosting", DiagnosticSeverity.Warning, true,
         "A2A endpoints refuse anonymous access unless the host opts in.",
         "https://roman-ambinder.github.io/a2a/guides/auth-and-ownership.html",
@@ -206,22 +207,22 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
     /// </summary>
     private static bool IsAuthorized(IInvocationOperation map, IOperation root)
     {
-        var walk = new BuilderWalk(root, true);
+        var walk = new BuilderWalk(root);
         var auth = walk.Uses(map, 0) | walk.Origin(Receiver(map), 0);
         return (auth & Auth.Anonymous) == 0 && (auth & (Auth.Authorized | Auth.Unknown)) != 0;
     }
 
     /// <summary>
-    ///     True when the mapped endpoints provably get <c>IAllowAnonymous</c> metadata from the builder <c>MapA2A</c>
-    ///     returns (<c>MapA2A(...).AllowAnonymous()</c>, through the chain and the locals that hold it). With a policy on the
-    ///     A2A builder, that is what fails the startup check: the policy goes on every endpoint without
-    ///     <c>IAuthorizeData</c> or <c>IAllowAnonymous</c> metadata, so these keep none, and the check refuses them. An outer
-    ///     group is not followed: the startup check reads the endpoints <c>MapA2A</c> builds inside the group, which the
-    ///     group's own metadata is not on, so they get the policy and the app starts.
+    ///     True when the mapped endpoints provably get <c>IAllowAnonymous</c> metadata: from the builder <c>MapA2A</c>
+    ///     returns (<c>MapA2A(...).AllowAnonymous()</c>, through the chain and the locals that hold it) or from an outer
+    ///     group (<c>MapGroup(...).AllowAnonymous().MapA2A(...)</c>). With a policy on the A2A builder, that is what fails
+    ///     the startup check: the policy goes on every endpoint without <c>IAuthorizeData</c> or <c>IAllowAnonymous</c>
+    ///     metadata, so these keep none, and the check, which reads the endpoints as the app serves them, refuses them.
     /// </summary>
     private static bool AllowsAnonymous(IInvocationOperation map, IOperation root)
     {
-        return (new BuilderWalk(root, false).Uses(map, 0) & Auth.Anonymous) != 0;
+        var walk = new BuilderWalk(root);
+        return ((walk.Uses(map, 0) | walk.Origin(Receiver(map), 0)) & Auth.Anonymous) != 0;
     }
 
     /// <summary>What code applies to an endpoint builder. Flags, since several paths can apply several things.</summary>
@@ -248,13 +249,9 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
         private const string AllowAnonymous = "Microsoft.AspNetCore.Authorization.IAllowAnonymous";
         private readonly IOperation root;
 
-        /// <summary>Whether what an outer group applies counts, as it does for the endpoints the app serves.</summary>
-        private readonly bool groups;
-
-        public BuilderWalk(IOperation root, bool groups)
+        public BuilderWalk(IOperation root)
         {
             this.root = root;
-            this.groups = groups;
         }
 
         /// <summary>What the uses of the builder that <paramref name="value" /> produces apply to it.</summary>
@@ -308,8 +305,8 @@ internal sealed class A2ASetupAnalyzer : DiagnosticAnalyzer
             {
                 case IInvocationOperation call when IsFramework(call.TargetMethod) &&
                                                     call.TargetMethod.Name.StartsWith("Map", StringComparison.Ordinal):
-                    // a new group (MapGroup, MapA2A): outer groups apply to it
-                    return groups ? Origin(Receiver(call), depth + 1) : Auth.None;
+                    // a new group (MapGroup, MapA2A): outer groups apply to it, as they do to the endpoints the app serves
+                    return Origin(Receiver(call), depth + 1);
                 case IInvocationOperation call:
                     var (applied, fluent) = Convention(call);
                     return fluent ? applied | Origin(Receiver(call), depth + 1) : applied | Auth.Unknown;

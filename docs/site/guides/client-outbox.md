@@ -98,6 +98,8 @@ Failures are sorted like this:
 | Anything else, including a timeout | Retry, in doubt. |
 | Your client resolver throws | Retry, not in doubt. |
 
+An SDK server marks its `Internal` errors retryable by default (<xref:A2A.A2AException.Retryable>), so they count as "Retry, not in doubt". That is safe against an SDK server, because it honours the `Idempotency-Key` (see above): a resend returns the first task instead of creating a second one. Against a peer that marks errors retryable but ignores the key, set `RetryInDoubt` and `MaxQueueAge` for the worst case.
+
 Waits between sends grow with each attempt, with jitter. An earlier doubt is kept until a send succeeds or fails for good.
 
 When the app stops, the dispatcher cancels work in flight and writes nothing for it. This looks the same as a crash, and the lease handles it.
