@@ -254,6 +254,18 @@ One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpl
 
 ### Fixes
 
+- Serializing a task with `A2AJson` no longer builds its `History`, `Timeline` and artifact `Parts` lists: the JSON
+  contract writes them from the shared buffer (ADR-004 follow-up), and the bytes are unchanged. 2,000 single appends
+  serialized on each commit: 72.5 MB to 40.2 MB allocated. When reading fails, a conversion error on `history`,
+  `timeline` or `parts` now names `IReadOnlyList<T>` instead of `List<T>`.
+- Postgres: `PostgresStoreOptions.HistoryRows` (off by default, ADR-005, proposed) stores a task's history and timeline
+  in their own rows (`a2a_task_entries`, migration 0008), so a status update writes only its new entries. 4,000 status
+  updates with 100-byte messages: 2.0 GB to 13.2 MB of WAL. Reads stay one statement, and
+  `InlineHistoryAndTimelineAsync` moves tasks back into the JSON.
+- Client: `A2AClientOptions.StreamKeepAliveTimeout` (default 60 s) ends a JSON-RPC or HTTP+JSON stream that stays
+  silent that long after the server's first keep-alive, so a connection a NAT or proxy dropped is noticed and
+  `ObserveTaskAsync` / `SendStreamingMessageAsync` reconnect from the last event id. Channels the gRPC client creates
+  itself send HTTP/2 keep-alive pings (every 5 minutes, 20 s timeout).
 - Postgres with `ArtifactRows`: a commit no longer builds the artifacts' part lists, so an append costs O(its own
   parts) in memory instead of O(all parts). 2,000 single appends to one artifact: about 50 KB to 26 KB per append. New
   additive `ModelCopies.CountParts` and `CopyLastParts` for stores that keep parts apart from the task.
