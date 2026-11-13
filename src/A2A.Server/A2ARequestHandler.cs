@@ -265,6 +265,14 @@ public sealed partial class A2ARequestHandler : IA2ARequestHandler, IDisposable
         }
     }
 
+    /// <inheritdoc />
+    public void RecordRefusedCall(ServerCallContext call, string? operation, Exception error)
+    {
+        ArgumentNullException.ThrowIfNull(call);
+        ArgumentNullException.ThrowIfNull(error);
+        ServerTelemetry.RecordRefused(_options.SecurityLogger, call, operation, error);
+    }
+
     // =====================================================================
     // SendMessage / SendStreamingMessage
     // =====================================================================

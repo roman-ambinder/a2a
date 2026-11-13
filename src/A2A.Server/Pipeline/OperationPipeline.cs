@@ -91,6 +91,7 @@ internal sealed class OperationPipeline
         CancellationToken cancellationToken)
         where TRequest : class
     {
+        call.Observed = true; // traced and counted here, not again by the binding (IA2ARequestHandler.RecordRefusedCall)
         if (_chain is null)
         {
             if (TelemetryFilter.IsEnabled)
@@ -123,6 +124,7 @@ internal sealed class OperationPipeline
         Func<A2AOperationContext, JsonElement, CancellationToken, ValueTask<JsonElement>> handler,
         CancellationToken cancellationToken)
     {
+        call.Observed = true;
         var context = new A2AOperationContext(descriptor, call, handler, ExtensionInvoker.Instance);
         if (call.Items.TryGetValue(A2AExtensionOperation.PolicySatisfiedItem, out var satisfied))
             context.Items[A2AExtensionOperation.PolicySatisfiedItem] = satisfied;

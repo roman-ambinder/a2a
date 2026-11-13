@@ -85,6 +85,19 @@ public sealed class ServerCallContext
     /// </summary>
     internal string? AuthorizedSkillId { get; set; }
 
+    /// <summary>
+    ///     True once the call entered the operation pipeline (whose <see cref="Telemetry.TelemetryFilter" /> traces and counts
+    ///     it), or once <see cref="IA2ARequestHandler.RecordRefusedCall" /> recorded it: a call is traced and counted once.
+    /// </summary>
+    internal bool Observed { get; set; }
+
+    /// <summary>
+    ///     True once a security event was recorded for this call before the pipeline (an anonymous caller refused by
+    ///     <see cref="IA2ARequestHandler.ValidateCall" />), so <see cref="IA2ARequestHandler.RecordRefusedCall" /> does not
+    ///     record it again.
+    /// </summary>
+    internal bool SecurityEventRecorded { get; set; }
+
     /// <summary>Value of the A2A-Version header, or null if absent.</summary>
     public string? ProtocolVersion { get; init; }
 

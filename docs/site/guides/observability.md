@@ -27,13 +27,21 @@ A runnable version is in [samples/ObservedAgent](https://github.com/roman-ambind
 
 | Source | Span | Kind | When |
 |---|---|---|---|
-| `A2A.Server` | `{method}` (`SendMessage`, `GetTask`, ...) | Server; Internal when it runs under another local span such as ASP.NET Core's request span | every operation, on all three bindings |
+| `A2A.Server` | `{method}` (`SendMessage`, `GetTask`, ...) | Server; Internal when it runs under another local span that is recorded, such as ASP.NET Core's request span | every operation, on all three bindings, also one refused before it ran |
 | `A2A.Server` | `a2a.agent.execute` | Internal | one agent run (execute, cancel or continue); child of the operation span |
 | `A2A.Server` | `a2a.push.deliver` | Client | one attempt to send one event to one webhook |
 | `A2A.Server` | `a2a.artifact.upload` | Internal | one write to the artifact object store (an offloaded artifact or an inbound upload) |
 | `A2A.Client` | `{method}` | Client | every `A2AClient` operation, with its retries and stream reconnects |
 
 The operation span is the outermost step of the operation pipeline. It wraps the host filters and authorization, so a refused or unauthenticated call still has a span with its error. Extension operations use their method name too.
+
+A call refused before the pipeline runs gets the same span, with its error, and is counted in `a2a.server.requests` the same way. That covers a challenge (401) or a forbid (403) from ASP.NET Core's authorization middleware on an A2A endpoint (`RequireAuthorization()`, the builder's API key and bearer authentication, card schemes), a rate limit rejection (429), a call that `ValidateCall` refuses (an unsupported `A2A-Version`, a required extension the caller did not request, an anonymous caller), an authenticated caller with no usable principal, and a request the binding cannot read (a body that does not parse, an unknown method). Such a span has no task id and no agent tags. Its name is the operation when the binding knows it at that point: the route names it on HTTP+JSON, the method on gRPC, and the envelope's `method` on JSON-RPC once the body was read. Otherwise, for example for a JSON-RPC call refused before its body is read or a method the server does not serve, the name and `a2a.method.name` are the fixed value `_OTHER` (as OpenTelemetry does for an unknown HTTP method), so caller input never becomes a tag. A call that reaches the pipeline is traced and counted there, once. A custom binding gets the same by calling `IA2ARequestHandler.RecordRefusedCall` on every failure before an operation.
+
+The parent of the operation span:
+
+- When the current activity is recorded, that is, a tracer listens to its source (ASP.NET Core's request span with the ASP.NET Core instrumentation on), the operation span is its Internal child.
+- Otherwise it is a Server span. Its parent is the caller's `traceparent` (or, without one, the trace context in the message metadata, see [Propagation](#propagation)), or it starts a new trace when there is none. ASP.NET Core creates its request activity even when nothing listens to it, for example for log scopes. The SDK does not nest under such an activity: with OpenTelemetry's default sampler (parent-based) and only `AddSource("A2A.Server")`, the span would otherwise be dropped for every caller that sent no sampled `traceparent`.
+- A caller's `traceparent` of another trace than the current activity also gives a Server span under the caller's context.
 
 The delivery span continues the trace of the agent run that produced the event. The trace context is stored with the delivery, so a retry or another instance stays in the same trace.
 
@@ -57,7 +65,7 @@ A client reconnect adds an `a2a.retry` span event with `a2a.retry.attempt`. A fa
 
 | Tag | On | Notes |
 |---|---|---|
-| `a2a.method.name` | operation spans | the operation name (for example `SendMessage`) |
+| `a2a.method.name` | operation spans | the operation name (for example `SendMessage`); `_OTHER` for a call refused before its operation was known |
 | `a2a.binding` | operation spans | `JSONRPC`, `HTTP+JSON` or `GRPC` |
 | `a2a.task.id` | operation, run and delivery spans | when known |
 | `gen_ai.conversation.id` | operation and run spans | the context id, when known |
@@ -77,6 +85,8 @@ A client reconnect adds an `a2a.retry` span event with `a2a.retry.attempt`. A fa
 ## Errors
 
 A failed operation gets status `Error`, the `error.type` tag and, for A2A errors, `a2a.error.code` (the <xref:A2A.A2AErrorCode> name, for example `TaskNotFound`). For an A2A error, `error.type` is the A2A reason (`TASK_NOT_FOUND`). For a non-A2A exception, it is the full exception type name (for example `System.InvalidOperationException`).
+
+A call refused before it ran is an error the same way, with the error the caller gets: a challenge by the authorization middleware is `Unauthenticated` (`UNAUTHENTICATED`), a forbid `PermissionDenied`, the rate limit `RateLimited`, an unsupported version `VersionNotSupported`, a body that does not parse `JsonParse` or `InvalidParams`. An unexpected failure in the binding is `Internal`, as the caller sees it. A caller that disconnects first is `canceled`.
 
 A run span is an error when the agent throws, when it hits <xref:A2A.Server.A2AServerOptions.MaxTaskDuration> (`error.type` is `TimeLimit`), when it goes past its usage budget (`error.type` is `BudgetExceeded`; see [Execution limits](execution-limits.md)), or when it leaves the task `FAILED` (`error.type` is `TaskFailed`). A cancellation the caller asked for sets `a2a.canceled` to `true` and is not an error.
 
@@ -98,7 +108,7 @@ The SDK emits no `gen_ai.operation.name` and no `invoke_agent` span. The convent
 
 Differences from the convention:
 
-- The operation span is a separate span under the ASP.NET Core request span. It does not enrich that span.
+- The operation span is a separate span, under the ASP.NET Core request span when that span is recorded. It does not enrich that span.
 - `server.address` and `client.address` come from HTTP or gRPC transport instrumentation when it is on.
 
 Some names have no convention, so they stay: the span names `a2a.agent.execute` and `a2a.push.deliver`, the `a2a.*` counters, and the tags `a2a.binding` and `a2a.error.code`.
@@ -109,7 +119,7 @@ All counters are `Counter<long>`, except the two up-down counters `a2a.server.ex
 
 | Meter | Counter | Tags | Counts |
 |---|---|---|---|
-| `A2A.Server` | `a2a.server.requests` | `a2a.method.name`, `a2a.outcome` (`ok`, `canceled`, `error`), `error.type` on errors | operations handled |
+| `A2A.Server` | `a2a.server.requests` | `a2a.method.name` (`_OTHER` when not known), `a2a.outcome` (`ok`, `canceled`, `error`), `error.type` on errors | operations handled, and calls refused before they ran (see [Spans](#spans)) |
 | `A2A.Server` | `a2a.server.events` | none | task events stored |
 | `A2A.Server` | `a2a.server.streams.opened` | none | streams admitted (`SendStreamingMessage`, `SubscribeToTask`) |
 | `A2A.Server` | `a2a.server.push.deliveries` | `a2a.outcome` (`sent`, `retried`, `dead_lettered`) | one per delivery attempt, counted when its result is recorded |
@@ -177,12 +187,14 @@ Each security event counts `a2a.server.security.events` and writes one log line 
 
 | Event | When |
 |---|---|
-| `unauthenticated` | Anonymous caller and `AllowAnonymous` is off. |
-| `permission_denied` | The authorization handler denied the call, also on an open stream at re-authorization. Counted once, even when the caller sees `TaskNotFound`. |
+| `unauthenticated` | Anonymous caller and `AllowAnonymous` is off: ASP.NET Core's authorization middleware challenged a request to an A2A endpoint (401), or the server refused the call. Also an authenticated caller whose identity gives no usable principal. |
+| `permission_denied` | The authorization handler denied the call, also on an open stream at re-authorization. Counted once, even when the caller sees `TaskNotFound`. Also a request to an A2A endpoint that ASP.NET Core's authorization middleware forbade (403), for example a policy the caller does not meet. |
 | `context_denied` | The caller named a context of another principal (and `ContextAccess` did not allow it). |
 | `webhook_refused` | A webhook URL was refused when its config was created, or when a delivery was attempted. |
 | `idempotency_key_mismatch` | An idempotency key was reused with a different request. |
 | `anomaly` | A caller created tasks or called CancelTask faster than the anomaly thresholds. Only when the detector is on; see below. |
+
+A refusal by the authorization middleware is recorded with `a2a.method.name` only when the route names the operation (HTTP+JSON and gRPC); a JSON-RPC body is not read before authorization, so that event has no method.
 
 **What is not counted.** A caller who reads another caller's task gets `TaskNotFound`. The store lookup is scoped by owner, so the server cannot tell that case from a task that does not exist, and the SDK does not add a lookup to find out. A denial by your own authorization handler is counted.
 
@@ -218,6 +230,7 @@ Code 250 (Debug) means the checks were skipped because of a broken registration.
 ## What can go wrong
 
 - No spans appear. Add the source name to `AddSource`. Client and server sources have different names.
+- The A2A server span is Internal and its parent is an ASP.NET Core span. The ASP.NET Core instrumentation is on (a tracer listens to `Microsoft.AspNetCore`), so the operation span nests under the request span. Without it, the operation span is the Server span.
 - Metrics from `A2A` are missing. Add `AddMeter("A2A")` as well as `AddMeter("A2A.Server")`. This also hides the registry and v0.3 counters.
 - A client span and a server span are in different traces. A proxy may drop `traceparent`, or a custom header in `A2ARequestOptions.Headers` may replace it. If a proxy drops it, set `A2AClientOptions.PropagateTraceInMetadata`.
 

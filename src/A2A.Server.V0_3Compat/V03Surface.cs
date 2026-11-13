@@ -4,6 +4,8 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using A2A.Json;
 using A2A.Server.Agents;
+using A2A.Server.Authorization;
+using A2A.Server.Pipeline;
 using A2A.Server.AspNetCore;
 using A2A.Server.Storage;
 using A2A.Server.Streaming;
@@ -181,14 +183,16 @@ internal sealed partial class V03Surface
     {
         var ct = http.RequestAborted;
         ServerCallContext call;
+        var operation = OperationOf(method);
         try
         {
             call = CreateCall(http, JsonRpcBinding);
         }
         catch (Exception ex)
         {
-            await WriteRpcFailureAsync(http, ServerCallContext.Anonymous(), id,
-                HttpPlumbing.Normalize(ex, _logger, _includeDetails)).ConfigureAwait(false);
+            var error = HttpPlumbing.Normalize(ex, _logger, _includeDetails);
+            RefusedCalls.Record(_handler, http, null, JsonRpcBinding, operation, error);
+            await WriteRpcFailureAsync(http, ServerCallContext.Anonymous(), id, error).ConfigureAwait(false);
             return;
         }
 
@@ -293,15 +297,18 @@ internal sealed partial class V03Surface
                     throw new A2AException(A2AErrorCode.MethodNotFound, $"Method '{method}' not found");
             }
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (ct.IsCancellationRequested)
         {
             // client disconnected
+            _handler.RecordRefusedCall(call, operation, ex);
         }
         catch (Exception ex)
         {
             var a2a = ex is JsonException json
                 ? A2AException.InvalidParams($"Invalid params: {json.Message}")
                 : HttpPlumbing.Normalize(ex, _logger, _includeDetails);
+            // A call the pipeline saw is traced and counted there already: this records only one refused before it.
+            _handler.RecordRefusedCall(call, operation, a2a);
             if (http.Response.HasStarted)
             {
                 ErrorAfterResponseStarted(_logger, ex);
@@ -310,6 +317,33 @@ internal sealed partial class V03Surface
 
             await WriteRpcFailureAsync(http, call, id, a2a).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    ///     The v1.0 operation a v0.3 JSON-RPC method or gRPC method runs (the name the pipeline counts it under), or null
+    ///     for a name that is not a v0.3 method.
+    /// </summary>
+    internal static string? OperationOf(string? method)
+    {
+        A2AOperation? operation = method switch
+        {
+            V03Compat.Methods.SendMessage or "SendMessage" => A2AOperation.SendMessage,
+            V03Compat.Methods.SendStreamingMessage or "SendStreamingMessage" => A2AOperation.SendStreamingMessage,
+            V03Compat.Methods.GetTask or "GetTask" => A2AOperation.GetTask,
+            V03Compat.Methods.CancelTask or "CancelTask" => A2AOperation.CancelTask,
+            V03Compat.Methods.ResubscribeTask or "TaskSubscription" => A2AOperation.SubscribeToTask,
+            V03Compat.Methods.SetPushConfig or "CreateTaskPushNotificationConfig" =>
+                A2AOperation.CreateTaskPushNotificationConfig,
+            V03Compat.Methods.GetPushConfig or "GetTaskPushNotificationConfig" =>
+                A2AOperation.GetTaskPushNotificationConfig,
+            V03Compat.Methods.ListPushConfig or "ListTaskPushNotificationConfig" =>
+                A2AOperation.ListTaskPushNotificationConfigs,
+            V03Compat.Methods.DeletePushConfig or "DeleteTaskPushNotificationConfig" =>
+                A2AOperation.DeleteTaskPushNotificationConfig,
+            V03Compat.Methods.GetExtendedCard or "GetAgentCard" => A2AOperation.GetExtendedAgentCard,
+            _ => null
+        };
+        return operation is { } known ? A2AOperationDescriptor.For(known).Name : null;
     }
 
     private static T ReadParams<T>(JsonNode? parameters, Func<JsonNode?, T> read)
@@ -369,28 +403,31 @@ internal sealed partial class V03Surface
     {
         foreach (var tenantPrefix in tenantInPattern ? new[] { "" } : new[] { "", "/{tenant}" })
         {
-            Map(group, "POST", tenantPrefix + RoutePrefix + "/message:send", SendMessage);
-            Map(group, "POST", tenantPrefix + RoutePrefix + "/message:stream", SendStreamingMessage);
-            Map(group, "GET", tenantPrefix + RoutePrefix + "/tasks", ListTasks);
-            Map(group, "GET", tenantPrefix + RoutePrefix + "/tasks/{id}", GetTask);
-            Map(group, "POST", tenantPrefix + RoutePrefix + "/tasks/{id}:cancel", CancelTask);
-            Map(group, "GET|POST", tenantPrefix + RoutePrefix + "/tasks/{id}:subscribe", Subscribe);
-            Map(group, "GET", tenantPrefix + RoutePrefix + "/card", GetCard);
-            Map(group, "POST", tenantPrefix + RoutePrefix + "/tasks/{id}/pushNotificationConfigs", CreatePushConfig);
-            Map(group, "GET", tenantPrefix + RoutePrefix + "/tasks/{id}/pushNotificationConfigs", ListPushConfigs);
+            Map(group, "POST", tenantPrefix + RoutePrefix + "/message:send", SendMessage, A2AOperation.SendMessage);
+            Map(group, "POST", tenantPrefix + RoutePrefix + "/message:stream", SendStreamingMessage, A2AOperation.SendStreamingMessage);
+            Map(group, "GET", tenantPrefix + RoutePrefix + "/tasks", ListTasks, A2AOperation.ListTasks);
+            Map(group, "GET", tenantPrefix + RoutePrefix + "/tasks/{id}", GetTask, A2AOperation.GetTask);
+            Map(group, "POST", tenantPrefix + RoutePrefix + "/tasks/{id}:cancel", CancelTask, A2AOperation.CancelTask);
+            Map(group, "GET|POST", tenantPrefix + RoutePrefix + "/tasks/{id}:subscribe", Subscribe, A2AOperation.SubscribeToTask);
+            Map(group, "GET", tenantPrefix + RoutePrefix + "/card", GetCard, A2AOperation.GetExtendedAgentCard);
+            Map(group, "POST", tenantPrefix + RoutePrefix + "/tasks/{id}/pushNotificationConfigs", CreatePushConfig, A2AOperation.CreateTaskPushNotificationConfig);
+            Map(group, "GET", tenantPrefix + RoutePrefix + "/tasks/{id}/pushNotificationConfigs", ListPushConfigs, A2AOperation.ListTaskPushNotificationConfigs);
             Map(group, "GET", tenantPrefix + RoutePrefix + "/tasks/{id}/pushNotificationConfigs/{configId}",
-                GetPushConfig);
+                GetPushConfig, A2AOperation.GetTaskPushNotificationConfig);
             Map(group, "DELETE", tenantPrefix + RoutePrefix + "/tasks/{id}/pushNotificationConfigs/{configId}",
-                DeletePushConfig);
+                DeletePushConfig, A2AOperation.DeleteTaskPushNotificationConfig);
         }
     }
 
-    private static void Map(RouteGroupBuilder group, string methods, string route, RequestDelegate handler)
+    private static void Map(RouteGroupBuilder group, string methods, string route, RequestDelegate handler,
+        A2AOperation operation)
     {
         // The display name starts with "A2A " so the startup check finds the endpoint and demands authorization for it.
-        // The rejection writer answers the rate limit (which runs before the endpoint) in the v0.3 error format.
+        // The rejection writer answers the rate limit (which runs before the endpoint) in the v0.3 error format. The
+        // operation (its v1.0 name, as the pipeline counts the converted call) names a call refused before the pipeline.
         group.MapMethods(route, methods.Split('|'), handler).WithDisplayName($"A2A HTTP+JSON v0.3 {methods} {route}")
-            .WithMetadata(V03RejectionWriter.Instance);
+            .WithMetadata(V03RejectionWriter.Instance)
+            .WithMetadata(new A2AOperationMetadata(RestBinding, A2AOperationDescriptor.For(operation).Name));
     }
 
     private Task SendMessage(HttpContext http)
@@ -601,8 +638,9 @@ internal sealed partial class V03Surface
         }
         catch (Exception ex) when (!http.Response.HasStarted)
         {
-            await WriteRestErrorAsync(http, ServerCallContext.Anonymous(),
-                HttpPlumbing.Normalize(ex, _logger, _includeDetails)).ConfigureAwait(false);
+            var error = HttpPlumbing.Normalize(ex, _logger, _includeDetails);
+            RefusedCalls.Record(_handler, http, null, RestBinding, RefusedCalls.OperationOf(http), error);
+            await WriteRestErrorAsync(http, ServerCallContext.Anonymous(), error).ConfigureAwait(false);
             return;
         }
 
@@ -617,12 +655,16 @@ internal sealed partial class V03Surface
             http.Response.ContentType = A2AProtocol.JsonMediaType;
             await http.Response.Body.WriteAsync(V03Json.ToUtf8(result), http.RequestAborted).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (http.RequestAborted.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (http.RequestAborted.IsCancellationRequested)
         {
+            _handler.RecordRefusedCall(call, RefusedCalls.OperationOf(http), ex);
         }
         catch (Exception ex) when (!http.Response.HasStarted)
         {
-            await WriteRestErrorAsync(http, call, RestError(ex)).ConfigureAwait(false);
+            var error = RestError(ex);
+            // A call the pipeline saw is traced and counted there already: this records only one refused before it.
+            _handler.RecordRefusedCall(call, RefusedCalls.OperationOf(http), error);
+            await WriteRestErrorAsync(http, call, error).ConfigureAwait(false);
         }
     }
 
@@ -636,8 +678,9 @@ internal sealed partial class V03Surface
         }
         catch (Exception ex) when (!http.Response.HasStarted)
         {
-            await WriteRestErrorAsync(http, ServerCallContext.Anonymous(),
-                HttpPlumbing.Normalize(ex, _logger, _includeDetails)).ConfigureAwait(false);
+            var error = HttpPlumbing.Normalize(ex, _logger, _includeDetails);
+            RefusedCalls.Record(_handler, http, null, RestBinding, RefusedCalls.OperationOf(http), error);
+            await WriteRestErrorAsync(http, ServerCallContext.Anonymous(), error).ConfigureAwait(false);
             return;
         }
 
@@ -662,12 +705,16 @@ internal sealed partial class V03Surface
                 },
                 _keepAlive, _logger, "error").ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (http.RequestAborted.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (http.RequestAborted.IsCancellationRequested)
         {
+            _handler.RecordRefusedCall(call, RefusedCalls.OperationOf(http), ex);
         }
         catch (Exception ex) when (!http.Response.HasStarted)
         {
-            await WriteRestErrorAsync(http, call, RestError(ex)).ConfigureAwait(false);
+            var error = RestError(ex);
+            // A call the pipeline saw is traced and counted there already: this records only one refused before it.
+            _handler.RecordRefusedCall(call, RefusedCalls.OperationOf(http), error);
+            await WriteRestErrorAsync(http, call, error).ConfigureAwait(false);
         }
     }
 

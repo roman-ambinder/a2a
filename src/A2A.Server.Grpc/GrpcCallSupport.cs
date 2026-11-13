@@ -14,7 +14,7 @@ namespace A2A.Server.Grpc;
 ///     The error translation and the extensions echo shared by the A2A gRPC services, so every service answers a failure
 ///     the same way.
 /// </summary>
-internal sealed class GrpcCallSupport(ILogger logger, bool includeDetails)
+internal sealed class GrpcCallSupport(ILogger logger, bool includeDetails, IA2ARequestHandler handler)
 {
     /// <summary>As the HTTP bindings decide it: the option, else true only in Development.</summary>
     public static bool ShouldIncludeDetails(IOptions<A2AServerOptions> options, IHostEnvironment environment)
@@ -40,8 +40,19 @@ internal sealed class GrpcCallSupport(ILogger logger, bool includeDetails)
     ///     An Unauthenticated error also carries a <c>www-authenticate</c> challenge naming the scheme, as the HTTP bindings
     ///     send <c>WWW-Authenticate</c> (spec 3.3.2, 7.4).
     /// </remarks>
-    public async Task<RpcException> FailAsync(Exception ex, GrpcContext context, ServerCallContext? call, bool headersSent)
+    /// <param name="ex">The failure.</param>
+    /// <param name="context">The gRPC call.</param>
+    /// <param name="call">The A2A call, or null when it could not be built.</param>
+    /// <param name="headersSent">True when the initial metadata was sent.</param>
+    /// <param name="operation">
+    ///     The operation of the gRPC method, recorded for a call that failed before the operation pipeline (
+    ///     <see cref="IA2ARequestHandler.RecordRefusedCall" />); null when the method does not name one.
+    /// </param>
+    public async Task<RpcException> FailAsync(Exception ex, GrpcContext context, ServerCallContext? call, bool headersSent,
+        string? operation)
     {
+        // A call the pipeline saw is traced and counted there already: this records only one refused before it.
+        handler.RecordRefusedCall(call ?? MinimalCall(context), operation, Normalize(ex, context));
         if (call is { ActivatedExtensions.Count: > 0 } && !headersSent)
             context.ResponseTrailers.Add(GrpcErrors.ExtensionsKey, string.Join(",", call.ActivatedExtensions));
         if (call is not null && ex is A2AException { Code: A2AErrorCode.Unauthenticated })
@@ -62,6 +73,43 @@ internal sealed class GrpcCallSupport(ILogger logger, bool includeDetails)
     {
         if (ex is OperationCanceledException && context.CancellationToken.IsCancellationRequested)
             return new RpcException(new Status(StatusCode.Cancelled, "Call canceled by the client"));
+        return GrpcErrors.ToRpcException(NormalizeA2A(ex, context, log: true));
+    }
+
+    /// <summary>The operation of a method of <c>lf.a2a.v1.A2AService</c>: its name (<c>/lf.a2a.v1.A2AService/GetTask</c>).</summary>
+    public static string OperationOf(GrpcContext context)
+    {
+        var method = context.Method;
+        return method[(method.LastIndexOf('/') + 1)..];
+    }
+
+    /// <summary>The call context of a call refused before its own could be built: the binding and the trace context.</summary>
+    private static ServerCallContext MinimalCall(GrpcContext context)
+    {
+        var headers = context.GetHttpContext().Request.Headers;
+        return new ServerCallContext
+        {
+            Binding = ProtocolBindings.Grpc,
+            TraceParent = A2A.Diagnostics.A2ATelemetry.TryExtractTraceContext(
+                headers[A2A.Diagnostics.A2ATelemetry.TraceParentHeader],
+                headers[A2A.Diagnostics.A2ATelemetry.TraceStateHeader], out var parent)
+                ? parent
+                : default
+        };
+    }
+
+    /// <summary>
+    ///     The error a failure is recorded as: the caller's cancellation as it is, the request's own errors with their code,
+    ///     and anything else a generic INTERNAL (not logged here: <see cref="Translate" /> logs it).
+    /// </summary>
+    private Exception Normalize(Exception ex, GrpcContext context)
+    {
+        if (ex is OperationCanceledException && context.CancellationToken.IsCancellationRequested) return ex;
+        return NormalizeA2A(ex, context, log: false);
+    }
+
+    private A2AException NormalizeA2A(Exception ex, GrpcContext context, bool log)
+    {
         // The same normalization as the HTTP bindings: the request's own errors keep their code, anything else is a generic
         // INTERNAL (with the exception text only when IncludeExceptionDetails allows it).
         var a2a = ex switch
@@ -73,13 +121,13 @@ internal sealed class GrpcCallSupport(ILogger logger, bool includeDetails)
         };
         if (a2a is null)
         {
-            GrpcServerLog.UnhandledError(logger, ex, context.Method);
+            if (log) GrpcServerLog.UnhandledError(logger, ex, context.Method);
             a2a = includeDetails
                 ? new A2AException(A2AErrorCode.Internal,
                     $"{A2AErrors.DefaultMessage(A2AErrorCode.Internal)}: {ex.GetType().Name}: {ex.Message}")
                 : new A2AException(A2AErrorCode.Internal);
         }
 
-        return GrpcErrors.ToRpcException(a2a);
+        return a2a;
     }
 }
