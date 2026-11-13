@@ -32,6 +32,7 @@ public sealed class ClientOptionsCloneTests
         [nameof(A2AClientOptions.ValidateCapabilities)] = false,
         [nameof(A2AClientOptions.ValidateResponses)] = false,
         [nameof(A2AClientOptions.MaxRetries)] = 7,
+        [nameof(A2AClientOptions.StreamKeepAliveTimeout)] = TimeSpan.FromSeconds(7),
         [nameof(A2AClientOptions.TimeProvider)] = new Clock(),
         [nameof(A2AClientOptions.CircuitBreaker)] = new CircuitBreakerOptions(),
         [nameof(A2AClientOptions.WaitForTaskCompletion)] = true,

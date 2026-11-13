@@ -6,6 +6,8 @@ The client retries a failed unary call (a call with one response, not a stream) 
 
 A unary call is retried up to `MaxRetries` times (default 2) on HTTP 503, 429, errors the peer marked retryable, and some transport errors. Streams are not retried, but `SendStreamingMessageAsync` and `ObserveTaskAsync` reconnect. See <xref:A2A.Client.A2AClientOptions.MaxRetries>.
 
+A stream whose connection was dropped without being closed is found by <xref:A2A.Client.A2AClientOptions.StreamKeepAliveTimeout> (default 60 seconds): once the server has sent keep-alives, a stream that receives nothing for that long fails with an `IOException`, and the two calls above reconnect from the last event id. gRPC uses HTTP/2 pings instead. See [Streaming](streaming.md#a-connection-that-goes-silent).
+
 A runnable version, where the agent answers 503 once and the client retries, is in [samples/ClientFeatures](https://github.com/roman-ambinder/a2a/blob/main/samples/ClientFeatures/README.md).
 
 ## Interface fallback

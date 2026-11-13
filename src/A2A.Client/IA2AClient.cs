@@ -170,7 +170,45 @@ public sealed class A2AClientOptions
     private int _maxRetries = 2;
 
     /// <summary>
-    ///     Clock used for retry delays and the circuit breaker. Default <see cref="System.TimeProvider.System" />.
+    ///     How long an SSE stream may receive nothing at all (no event and no keep-alive comment) before the client treats
+    ///     the connection as dropped, once the server has sent a keep-alive comment on it. Default 60 seconds: four times the
+    ///     15-second keep-alive interval of this SDK's servers. Null or <see cref="Timeout.InfiniteTimeSpan" /> turns it off.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         A NAT, proxy or load balancer can drop a connection without closing it. The stream then waits until the
+    ///         operating system gives up on the connection, which can take hours. With this timeout the read fails with an
+    ///         <see cref="IOException" /> (its inner exception a <see cref="TimeoutException" />), and
+    ///         <see cref="A2AClient.ObserveTaskAsync" /> and <see cref="A2AClient.SendStreamingMessageAsync" /> reconnect as
+    ///         for any dropped connection: from the last event id (<c>Last-Event-ID</c>), or the last generation on A2A 1.1.
+    ///     </para>
+    ///     <para>
+    ///         The timer starts only after the server's first keep-alive comment on a connection (any SSE comment line), so a
+    ///         peer that sends no keep-alives is never timed out, however long its task stays quiet. It counts only while
+    ///         the client waits for bytes: time the caller spends on an event does not count. Set it above the server's
+    ///         keep-alive interval (<c>StreamingOptions.KeepAliveInterval</c> on this SDK's servers). It applies to the
+    ///         JSON-RPC and HTTP+JSON bindings (and the v0.3 ones); gRPC streams have no keep-alive messages and rely on
+    ///         HTTP/2 pings instead. Time comes from <see cref="TimeProvider" />. Caller cancellation is still an
+    ///         <see cref="OperationCanceledException" />.
+    ///     </para>
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">The value is zero or negative (other than <see cref="Timeout.InfiniteTimeSpan" />).</exception>
+    public TimeSpan? StreamKeepAliveTimeout
+    {
+        get => _streamKeepAliveTimeout;
+        set => _streamKeepAliveTimeout = value is not { } v || v == Timeout.InfiniteTimeSpan || v > TimeSpan.Zero
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(value), value,
+                "StreamKeepAliveTimeout must be positive, or null or Timeout.InfiniteTimeSpan to turn it off.");
+    }
+
+    private TimeSpan? _streamKeepAliveTimeout = DefaultStreamKeepAliveTimeout;
+
+    /// <summary>The default of <see cref="StreamKeepAliveTimeout" />: 60 seconds.</summary>
+    public static readonly TimeSpan DefaultStreamKeepAliveTimeout = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    ///     Clock used for retry delays, the circuit breaker and <see cref="StreamKeepAliveTimeout" />. Default <see cref="System.TimeProvider.System" />.
     ///     Replace it in tests.
     /// </summary>
     public TimeProvider TimeProvider { get; set; } = TimeProvider.System;
@@ -287,6 +325,7 @@ public sealed class A2AClientOptions
             ValidateCapabilities = ValidateCapabilities,
             ValidateResponses = ValidateResponses,
             MaxRetries = MaxRetries,
+            StreamKeepAliveTimeout = StreamKeepAliveTimeout,
             TimeProvider = TimeProvider,
             CircuitBreaker = CircuitBreaker,
             WaitForTaskCompletion = WaitForTaskCompletion,
