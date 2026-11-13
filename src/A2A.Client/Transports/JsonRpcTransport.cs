@@ -331,7 +331,8 @@ public sealed class JsonRpcTransport : HttpTransportBase, IA2ATransport, IA2AExt
         await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
 #endif
         // Each event is parsed from its UTF-8 bytes in the reader's buffer: no string and no copy per event.
-        await foreach (var frame in SseReader.ReadFramesAsync(stream, SseReader.DefaultMaxEventBytes, ct)
+        await foreach (var frame in SseReader.ReadFramesAsync(stream, SseReader.DefaultMaxEventBytes,
+                           Options.StreamKeepAliveTimeout, Options.TimeProvider, ct)
                            .ConfigureAwait(false))
             // A2A #2269: an event of a type this SDK does not know (a newer protocol version) is skipped, not fatal.
             if (ReadStreamEvent(frame.Data.Span, method) is { } item)
