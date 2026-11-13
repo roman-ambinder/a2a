@@ -11,6 +11,8 @@ using A2A.Server.Authorization;
 using A2A.Server.Pipeline;
 using A2A.Server.Push;
 using A2A.Server.Storage;
+using A2A.Server.Telemetry;
+using A2A.Server.Uploads;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -758,5 +760,181 @@ public sealed class TelemetryTests
         Assert.Null(get.GetTagItem(A2ATelemetry.Tags.AgentName));
         Assert.Null(get.GetTagItem(A2ATelemetry.Tags.AgentVersion));
         Assert.Equal("1.0", get.GetTagItem(A2ATelemetry.Tags.ProtocolVersion));
+    }
+
+    // ---------------------------------------------------------------- run span: cancel vs host shutdown
+
+    /// <summary>Works until its token fires.</summary>
+    private sealed class BlockingAgent
+    {
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public IAgentExecutor Executor => new DelegateAgentExecutor(async (_, u, ct) =>
+        {
+            await u.StartWorkAsync("working", ct);
+            Started.TrySetResult();
+            await Task.Delay(System.Threading.Timeout.Infinite, ct);
+        });
+    }
+
+    private static async Task<AgentTask> StartBlockedAsync(TestAgentHost host, BlockingAgent agent)
+    {
+        var task = (await host.Handler.SendMessageAsync(new SendMessageRequest
+        {
+            Message = Message.FromUser("go"),
+            Configuration = new SendMessageConfiguration { ReturnImmediately = true },
+        }, AliceCall()).WaitAsync(Timeout)).RequireTask();
+        await agent.Started.Task.WaitAsync(Timeout);
+        return task;
+    }
+
+    private static async Task<Activity> RunSpanAsync(Spans spans, string taskId, string kind = "execute")
+    {
+        var until = DateTime.UtcNow + Timeout;
+        while (DateTime.UtcNow < until)
+        {
+            var run = spans.Named(A2ATelemetry.SpanNames.AgentExecution).FirstOrDefault(a =>
+                Equals(a.GetTagItem(A2ATelemetry.Tags.TaskId), taskId) && Equals(a.GetTagItem(A2ATelemetry.Tags.ExecutionKind), kind));
+            if (run is not null) return run;
+            await Task.Delay(10);
+        }
+        throw new Xunit.Sdk.XunitException($"No {kind} run span for {taskId}.");
+    }
+
+    [Fact]
+    public async Task Run_canceled_by_CancelTask_is_canceled()
+    {
+        var agent = new BlockingAgent();
+        await using var host = await TestAgentHost.StartAsync(services: s => s.Replace(ServiceDescriptor.Singleton(agent.Executor)));
+        using var spans = new Spans(A2ATelemetry.ServerSourceName);
+        var task = await StartBlockedAsync(host, agent);
+
+        await host.Handler.CancelTaskAsync(new CancelTaskRequest { Id = task.Id }, AliceCall()).WaitAsync(Timeout);
+
+        var run = await RunSpanAsync(spans, task.Id);
+        Assert.Equal(true, run.GetTagItem(A2ATelemetry.ErrorTypeCanceledTag));
+        Assert.Null(run.GetTagItem(A2A.Server.Execution.TaskExecutionEngine.InterruptedTag));
+        Assert.NotEqual(ActivityStatusCode.Error, run.Status);
+    }
+
+    [Fact]
+    public async Task Run_stopped_by_host_shutdown_is_interrupted_not_canceled()
+    {
+        var agent = new BlockingAgent();
+        await using var host = await TestAgentHost.StartAsync(services: s => s.Replace(ServiceDescriptor.Singleton(agent.Executor)));
+        using var spans = new Spans(A2ATelemetry.ServerSourceName);
+        var task = await StartBlockedAsync(host, agent);
+
+        host.Engine.Shutdown();
+        await host.Engine.WhenIdleAsync().WaitAsync(Timeout);
+
+        var run = await RunSpanAsync(spans, task.Id);
+        Assert.Null(run.GetTagItem(A2ATelemetry.ErrorTypeCanceledTag));
+        Assert.Equal(true, run.GetTagItem(A2A.Server.Execution.TaskExecutionEngine.InterruptedTag));
+        Assert.NotEqual(ActivityStatusCode.Error, run.Status);
+        Assert.Null(run.GetTagItem(A2ATelemetry.Tags.ErrorType));
+    }
+
+    // ---------------------------------------------------------------- upload span errors
+
+    /// <summary>An object store whose writes fail with <see cref="Fail"/>, or honour the token.</summary>
+    private sealed class FailingStore : ArtifactObjectStore
+    {
+        private readonly InMemoryArtifactObjectStore _inner = new();
+        public Exception? Fail { get; init; }
+
+        public override ValueTask<ArtifactObjectWriteResult> PutAsync(string key, Stream content, ArtifactObjectInfo info, long maxBytes, CancellationToken cancellationToken = default)
+        {
+            if (Fail is not null) throw Fail;
+            cancellationToken.ThrowIfCancellationRequested();
+            return _inner.PutAsync(key, content, info, maxBytes, cancellationToken);
+        }
+
+        public override ValueTask<ArtifactObjectContent?> OpenReadAsync(string key, ArtifactByteRange? range = null, CancellationToken cancellationToken = default) =>
+            _inner.OpenReadAsync(key, range, cancellationToken);
+
+        public override ValueTask DeleteAsync(string key, CancellationToken cancellationToken = default) => _inner.DeleteAsync(key, cancellationToken);
+
+        public override IAsyncEnumerable<ArtifactObjectEntry> ListAsync(string prefix, CancellationToken cancellationToken = default) =>
+            _inner.ListAsync(prefix, cancellationToken);
+    }
+
+    private static ArtifactStorageOptions UploadStorage()
+    {
+        var storage = new ArtifactStorageOptions { PublicBaseUrl = new Uri("https://agent.test/a2a") };
+        storage.Uploads.Enabled = true;
+        return storage;
+    }
+
+    private static Activity UploadSpan(Spans spans, string tag, string value) =>
+        Assert.Single(spans.Named(ServerTelemetry.UploadSpanName), a => Equals(a.GetTagItem(tag), value));
+
+    private static async Task UploadAsync(string kind, ArtifactObjectStore store, string owner, CancellationToken ct)
+    {
+        if (kind == "offload")
+            await new ArtifactOffload(store, UploadStorage(), "", owner).UploadAsync(new MemoryStream(new byte[64]), null, null, null, ct);
+        else
+            await new InboundFiles(store, UploadStorage(), TimeProvider.System).UploadAsync(
+                new ServerCallContext { Principal = "alice", Tenant = owner, User = AliceCall().User }, new MemoryStream(new byte[64]), null, null, null, ct);
+    }
+
+    private static string OwnerTag(string kind) => kind == "offload" ? A2ATelemetry.Tags.TaskId : A2ATelemetry.Tags.Tenant;
+
+    [Theory]
+    [InlineData("offload")]
+    [InlineData("inbound")]
+    public async Task Failed_upload_span_has_the_documented_error_type(string kind)
+    {
+        using var spans = new Spans(A2ATelemetry.ServerSourceName);
+        var owner = "fail-" + kind;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            UploadAsync(kind, new FailingStore { Fail = new InvalidOperationException("boom") }, owner, CancellationToken.None));
+
+        var span = UploadSpan(spans, OwnerTag(kind), owner);
+        Assert.Equal(ActivityStatusCode.Error, span.Status);
+        Assert.Equal(typeof(InvalidOperationException).FullName, span.GetTagItem(A2ATelemetry.Tags.ErrorType));
+        Assert.Equal(typeof(InvalidOperationException).FullName, span.StatusDescription);
+    }
+
+    [Theory]
+    [InlineData("offload")]
+    [InlineData("inbound")]
+    public async Task Upload_canceled_by_the_caller_is_canceled_not_an_error(string kind)
+    {
+        using var spans = new Spans(A2ATelemetry.ServerSourceName);
+        var owner = "cancel-" + kind;
+        using var caller = new CancellationTokenSource();
+        await caller.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => UploadAsync(kind, new FailingStore(), owner, caller.Token));
+
+        var span = UploadSpan(spans, OwnerTag(kind), owner);
+        Assert.Equal(true, span.GetTagItem(A2ATelemetry.ErrorTypeCanceledTag));
+        Assert.NotEqual(ActivityStatusCode.Error, span.Status);
+        Assert.Null(span.GetTagItem(A2ATelemetry.Tags.ErrorType));
+    }
+
+    // ---------------------------------------------------------------- one instrumentation scope
+
+    [Fact]
+    public void Artifact_bytes_served_counter_shares_the_server_meter_scope()
+    {
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(A2A.Server.AspNetCore.ArtifactEndpoint).TypeHandle);
+        _ = ServerTelemetry.Requests; // the server meter's counters exist
+        var meters = new ConcurrentDictionary<string, Meter>();
+        using var listener = new MeterListener
+        {
+            InstrumentPublished = (instrument, _) =>
+            {
+                if (instrument.Meter.Name == A2ATelemetry.ServerMeterName) meters[instrument.Name] = instrument.Meter;
+            },
+        };
+        listener.Start();
+
+        var served = meters["a2a.server.artifact.bytes.served"];
+        var requests = meters[A2ATelemetry.Metrics.Requests];
+        Assert.NotNull(requests.Version);
+        Assert.Equal(requests.Version, served.Version);
     }
 }

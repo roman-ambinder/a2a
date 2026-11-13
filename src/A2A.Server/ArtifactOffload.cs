@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text.Json;
@@ -80,7 +79,7 @@ internal sealed class ArtifactOffload(
         }
         catch (Exception ex)
         {
-            activity?.SetStatus(ActivityStatusCode.Error, ex.GetType().Name);
+            A2ATelemetry.RecordError(activity, ex, cancellationToken.IsCancellationRequested);
             throw;
         }
 
