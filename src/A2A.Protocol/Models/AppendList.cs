@@ -1,3 +1,5 @@
+using System.Collections;
+
 namespace A2A;
 
 /// <summary>
@@ -26,8 +28,12 @@ namespace A2A;
 ///         (unreachable from the new version) until the next growth copies only the live items. With a cap of N kept
 ///         items the array grows to about 2N, so a trimmed append stays O(1) amortized.
 ///     </para>
+///     <para>
+///         <b>Read-only list.</b> A version is an <see cref="IReadOnlyList{T}" /> so the JSON contract can write it as the
+///         property's array without building the public list (<see cref="LazyList{T}.View" />).
+///     </para>
 /// </remarks>
-internal sealed class AppendList<T>
+internal sealed class AppendList<T> : IReadOnlyList<T>
 {
     private const int MinCapacity = 4;
 
@@ -55,6 +61,19 @@ internal sealed class AppendList<T>
             if ((uint)index >= (uint)Count) throw new ArgumentOutOfRangeException(nameof(index));
             return _buffer.Items[_start + index];
         }
+    }
+
+    /// <summary>Enumerates this version's items, in order. Appends made by newer versions are never seen.</summary>
+    public IEnumerator<T> GetEnumerator()
+    {
+        var items = _buffer.Items;
+        var end = _start + Count;
+        for (var i = _start; i < end; i++) yield return items[i];
+    }
+
+    IEnumerator IEnumerable.GetEnumerator()
+    {
+        return GetEnumerator();
     }
 
     /// <summary>
