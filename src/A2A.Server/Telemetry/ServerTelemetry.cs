@@ -13,7 +13,7 @@ namespace A2A.Server.Telemetry;
 /// </summary>
 /// <remarks>
 ///     Spans: one per operation (named after the method, by <see cref="TelemetryFilter" />), one per agent run
-///     (<see cref="A2ATelemetry.SpanNames.AgentExecution" />) and one per webhook delivery (
+///     (<see cref="A2ATelemetry.SpanNames.AgentExecution" />) and one per webhook delivery attempt (
 ///     <see cref="A2ATelemetry.SpanNames.PushDelivery" />).
 ///     Counters (<see cref="A2ATelemetry.Metrics" />): requests by operation and outcome, events stored, streams opened,
 ///     push
@@ -118,29 +118,106 @@ internal static class ServerTelemetry
     }
 
     /// <summary>
-    ///     Starts the span of an operation, or returns null when nobody samples it. Its parent is the current activity (for
-    ///     example
-    ///     ASP.NET Core's request activity), or the caller's trace context from <see cref="ServerCallContext.TraceParent" />
-    ///     when no
-    ///     activity of that trace is current; it is a server span unless it nests under a local one. When the request
-    ///     carried no trace context, the one in the message metadata (<paramref name="message" />, written by a client with
-    ///     <c>PropagateTraceInMetadata</c>) is used instead.
+    ///     Starts the span of an operation, or returns null when nobody samples it. Under a current activity that someone
+    ///     records (for example ASP.NET Core's request activity with a tracer listening to <c>Microsoft.AspNetCore</c>) it is
+    ///     an Internal child of that activity. Otherwise it is a Server span whose parent is the caller's trace context from
+    ///     <see cref="ServerCallContext.TraceParent" /> (or, when the request carried none, the one in the message metadata,
+    ///     <paramref name="message" />, written by a client with <c>PropagateTraceInMetadata</c>), or the root of a new trace
+    ///     when there is none. A caller's context of another trace than the current activity also gets a Server span.
     /// </summary>
+    /// <remarks>
+    ///     A current activity whose source has no listener is one nobody records: ASP.NET Core creates its request activity
+    ///     for logging even when no tracer listens to it. A span under it would be Internal, point at a parent nobody
+    ///     exports, and be dropped by a ParentBased sampler (OpenTelemetry's default) when the caller sent no sampled trace
+    ///     context. Such an activity is treated as absent. One whose source has a listener is kept, sampled or not, so the
+    ///     A2A span follows the sampling decision of the request span.
+    /// </remarks>
     public static Activity? StartOperation(string spanName, string operation, ServerCallContext call, string? taskId,
         Message? message = null)
     {
         var current = Activity.Current;
+        var unobserved = current is not null && !current.Source.HasListeners();
+        var parent = unobserved ? null : current;
         var remote = call.TraceParent;
         if (remote.TraceId == default && A2ATelemetry.TryExtractTraceContext(message, out var carried))
             remote = carried;
-        var activity = remote.TraceId != default && (current is null || current.TraceId != remote.TraceId)
-            ? Source.StartActivity(spanName, ActivityKind.Server, remote)
-            : Source.StartActivity(spanName, current is null ? ActivityKind.Server : ActivityKind.Internal);
+        Activity? activity;
+        if (remote.TraceId != default && (parent is null || parent.TraceId != remote.TraceId))
+        {
+            activity = Source.StartActivity(spanName, ActivityKind.Server, remote);
+        }
+        else if (parent is not null)
+        {
+            activity = Source.StartActivity(spanName, ActivityKind.Internal);
+        }
+        else
+        {
+            // A new trace. With no parent context StartActivity takes Activity.Current as the parent, so the unobserved
+            // activity is cleared first (callers run this in their own async method, so their caller keeps it).
+            if (unobserved) Activity.Current = null;
+            activity = Source.StartActivity(spanName, ActivityKind.Server);
+            if (activity is null && unobserved) Activity.Current = current;
+        }
+
         if (activity is { IsAllDataRequested: true })
             A2ATelemetry.SetOperationTags(activity, operation, call.Binding, call.Tenant, taskId,
                 protocolVersion: call.WireProtocolVersion ?? call.ProtocolVersion);
         return activity;
     }
+
+    /// <summary>
+    ///     Records a call that failed before it reached the operation pipeline (see
+    ///     <see cref="IA2ARequestHandler.RecordRefusedCall" />): one operation span with the error, one
+    ///     <c>a2a.server.requests</c> count, and for an Unauthenticated or PermissionDenied refusal one security event,
+    ///     unless one was recorded already. Nothing when the pipeline saw the call (<see cref="ServerCallContext.Observed" />).
+    /// </summary>
+    /// <param name="logger">The security event logger (<see cref="A2AServerOptions.SecurityLogger" />), or null.</param>
+    /// <param name="call">The call.</param>
+    /// <param name="operation">The operation name, or null when unknown (<see cref="OtherOperation" /> is used).</param>
+    /// <param name="error">The failure.</param>
+    public static void RecordRefused(Microsoft.Extensions.Logging.ILogger? logger, ServerCallContext call,
+        string? operation, Exception error)
+    {
+        if (call.Observed) return;
+        call.Observed = true;
+        var name = operation ?? OtherOperation;
+        if (!call.SecurityEventRecorded && error is A2AException
+            {
+                Code: A2AErrorCode.Unauthenticated or A2AErrorCode.PermissionDenied
+            } refused)
+        {
+            call.SecurityEventRecorded = true;
+            SecurityEventLog.Record(logger,
+                refused.Code == A2AErrorCode.Unauthenticated
+                    ? A2ATelemetry.SecurityEventNames.Unauthenticated
+                    : A2ATelemetry.SecurityEventNames.PermissionDenied,
+                operation, call.Tenant, call.Principal, null);
+        }
+
+        // Only the caller's own disconnect reaches a binding as a cancellation before the pipeline.
+        var canceled = error is OperationCanceledException;
+        TelemetryFilter.Count(name, canceled ? A2ATelemetry.Outcomes.Canceled : A2ATelemetry.Outcomes.Error,
+            canceled ? null : error);
+        if (!Source.HasListeners()) return;
+        var previous = Activity.Current;
+        var activity = StartOperation(name, name, call, null);
+        if (activity is null) return;
+        if (activity.IsAllDataRequested)
+        {
+            A2ATelemetry.RecordError(activity, error, canceled);
+            if (call.Tenant.Length > 0) activity.SetTag(A2ATelemetry.Tags.Tenant, call.Tenant);
+        }
+
+        activity.Dispose();
+        Activity.Current = previous; // a span of a new trace has no parent to give back
+    }
+
+    /// <summary>
+    ///     The <c>a2a.method.name</c> of a call refused before its operation was known (a JSON-RPC call refused before its
+    ///     body was read, or a method the server does not serve): one fixed value, so caller input never becomes a tag.
+    ///     The value follows OpenTelemetry's <c>_OTHER</c> for an unknown HTTP method.
+    /// </summary>
+    public const string OtherOperation = "_OTHER";
 
     /// <summary>
     ///     Starts the span of an agent run (<paramref name="kind" />: <c>execute</c>, <c>cancel</c> or <c>continue</c>) as a

@@ -205,7 +205,7 @@ internal sealed class TelemetryFilter : IA2AOperationFilter
         Exception? error, CancellationToken cancellationToken)
     {
         var outcome = ServerTelemetry.Outcome(error, cancellationToken);
-        Count(operation, outcome, error);
+        Count(operation.Name, outcome, error);
         if (activity is null) return;
         if (activity.IsAllDataRequested)
         {
@@ -230,7 +230,7 @@ internal sealed class TelemetryFilter : IA2AOperationFilter
 
     private static void StopCanceled(Activity? activity, A2AOperationDescriptor operation, ServerCallContext call)
     {
-        Count(operation, A2ATelemetry.Outcomes.Canceled, null);
+        Count(operation.Name, A2ATelemetry.Outcomes.Canceled, null);
         if (activity is null) return;
         if (activity.IsAllDataRequested)
         {
@@ -242,20 +242,21 @@ internal sealed class TelemetryFilter : IA2AOperationFilter
         activity.Dispose();
     }
 
-    private static void Count(A2AOperationDescriptor operation, string outcome, Exception? error)
+    /// <summary>One <c>a2a.server.requests</c> measurement: the operation, the outcome, and <c>error.type</c> for an error.</summary>
+    internal static void Count(string operation, string outcome, Exception? error)
     {
         if (!ServerTelemetry.Requests.Enabled) return;
         if (ReferenceEquals(outcome, A2ATelemetry.Outcomes.Error) && error is not null)
         {
             ServerTelemetry.Requests.Add(1,
-                new KeyValuePair<string, object?>(A2ATelemetry.Tags.Operation, operation.Name),
+                new KeyValuePair<string, object?>(A2ATelemetry.Tags.Operation, operation),
                 new KeyValuePair<string, object?>(A2ATelemetry.Tags.Outcome, outcome),
                 new KeyValuePair<string, object?>(A2ATelemetry.Tags.ErrorType, A2ATelemetry.ErrorTypeOf(error)));
             return;
         }
 
         ServerTelemetry.Requests.Add(1,
-            new KeyValuePair<string, object?>(A2ATelemetry.Tags.Operation, operation.Name),
+            new KeyValuePair<string, object?>(A2ATelemetry.Tags.Operation, operation),
             new KeyValuePair<string, object?>(A2ATelemetry.Tags.Outcome, outcome));
     }
 }

@@ -56,7 +56,7 @@ public sealed class A2AGrpcExtensionService : A2AExtensionService.A2AExtensionSe
         _table = table;
         _maxDepth = serverOptions.Value.Limits.MaxJsonDepth;
         _allowAnonymous = serverOptions.Value.AllowAnonymous;
-        _support = new GrpcCallSupport(logger, GrpcCallSupport.ShouldIncludeDetails(serverOptions, environment));
+        _support = new GrpcCallSupport(logger, GrpcCallSupport.ShouldIncludeDetails(serverOptions, environment), handler);
     }
 
     /// <summary>Runs the extension operation named by <c>operation_id</c> (unary).</summary>
@@ -82,7 +82,9 @@ public sealed class A2AGrpcExtensionService : A2AExtensionService.A2AExtensionSe
         }
         catch (Exception ex) when (ex is not RpcException)
         {
-            throw await _support.FailAsync(ex, context, call, false).ConfigureAwait(false);
+            // The operation only when the table serves it: the id is the caller's text.
+            var name = _table.TryGetExtension(request.OperationId, out var known) ? known.Method : null;
+            throw await _support.FailAsync(ex, context, call, false, name).ConfigureAwait(false);
         }
     }
 

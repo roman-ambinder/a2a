@@ -59,10 +59,12 @@ public sealed class RestEndpoint(
             foreach (var (method, route, operation) in table.RestRoutes)
                 // The display name starts with "A2A " so the startup check can find every A2A endpoint.
                 group.MapMethods(prefix + route, method.Split('|'), HandlerFor(operation))
-                    .WithDisplayName($"A2A HTTP+JSON {method} {prefix + route}");
+                    .WithDisplayName($"A2A HTTP+JSON {method} {prefix + route}")
+                    .WithMetadata(new A2AOperationMetadata(ProtocolBindings.HttpJson, operation.Name));
             // A2A 1.1 SendLiveMessage (§3.1.12). Each request is authorized as the operation it runs.
             group.MapMethods(prefix + "/message:live", ["POST"], SendLiveMessage)
-                .WithDisplayName($"A2A HTTP+JSON POST {prefix}/message:live");
+                .WithDisplayName($"A2A HTTP+JSON POST {prefix}/message:live")
+                .WithMetadata(new A2AOperationMetadata(ProtocolBindings.HttpJson, A2AProtocol.Methods.SendLiveMessage));
         }
     }
 
@@ -333,8 +335,9 @@ public sealed class RestEndpoint(
         }
         catch (Exception ex) when (!http.Response.HasStarted)
         {
-            await WriteErrorAsync(http, ServerCallContext.Anonymous(),
-                HttpPlumbing.Normalize(ex, logger, _includeDetails)).ConfigureAwait(false);
+            var error = HttpPlumbing.Normalize(ex, logger, _includeDetails);
+            RefusedCalls.Record(handler, http, null, ProtocolBindings.HttpJson, RefusedCalls.OperationOf(http), error);
+            await WriteErrorAsync(http, ServerCallContext.Anonymous(), error).ConfigureAwait(false);
             return;
         }
 
@@ -343,13 +346,16 @@ public sealed class RestEndpoint(
             handler.ValidateCall(call);
             await write(call, http.RequestAborted).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (http.RequestAborted.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (http.RequestAborted.IsCancellationRequested)
         {
+            handler.RecordRefusedCall(call, RefusedCalls.OperationOf(http), ex);
         }
         catch (Exception ex) when (!http.Response.HasStarted)
         {
-            await WriteErrorAsync(http, call, HttpPlumbing.Normalize(ex, logger, _includeDetails))
-                .ConfigureAwait(false);
+            var error = HttpPlumbing.Normalize(ex, logger, _includeDetails);
+            // A call the pipeline saw is traced and counted there already: this records only one refused before it.
+            handler.RecordRefusedCall(call, RefusedCalls.OperationOf(http), error);
+            await WriteErrorAsync(http, call, error).ConfigureAwait(false);
         }
     }
 
@@ -367,8 +373,9 @@ public sealed class RestEndpoint(
         }
         catch (Exception ex) when (!http.Response.HasStarted)
         {
-            await WriteErrorAsync(http, ServerCallContext.Anonymous(),
-                HttpPlumbing.Normalize(ex, logger, _includeDetails)).ConfigureAwait(false);
+            var error = HttpPlumbing.Normalize(ex, logger, _includeDetails);
+            RefusedCalls.Record(handler, http, null, ProtocolBindings.HttpJson, RefusedCalls.OperationOf(http), error);
+            await WriteErrorAsync(http, ServerCallContext.Anonymous(), error).ConfigureAwait(false);
             return;
         }
 
@@ -389,13 +396,16 @@ public sealed class RestEndpoint(
                 // A2A #1262: a2a-python reads REST stream errors from frames named "error".
                 _keepAlive, logger, "error").ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (http.RequestAborted.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (http.RequestAborted.IsCancellationRequested)
         {
+            handler.RecordRefusedCall(call, RefusedCalls.OperationOf(http), ex);
         }
         catch (Exception ex) when (!http.Response.HasStarted)
         {
-            await WriteErrorAsync(http, call, HttpPlumbing.Normalize(ex, logger, _includeDetails))
-                .ConfigureAwait(false);
+            var error = HttpPlumbing.Normalize(ex, logger, _includeDetails);
+            // A call the pipeline saw is traced and counted there already: this records only one refused before it.
+            handler.RecordRefusedCall(call, RefusedCalls.OperationOf(http), error);
+            await WriteErrorAsync(http, call, error).ConfigureAwait(false);
         }
     }
 

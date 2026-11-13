@@ -281,6 +281,23 @@ One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpl
 
 ### Fixes
 
+- Observability, from the review of the telemetry:
+  - A call refused before the operation pipeline (by the authorization middleware, the rate limit, call validation
+    such as an unsupported version, or a body that does not parse) now has a server span with its error, an
+    `a2a.server.requests` count and, for a 401 or 403, a security event and its log line, on every binding (v0.3
+    included). Before, an anonymous flood showed in none of them. An unknown operation is named `_OTHER`. New
+    `IA2ARequestHandler.RecordRefusedCall`, a no-op by default.
+  - The server operation span is a Server span under the caller's trace context when the current activity's source
+    has no listener (ASP.NET Core's request activity exists even when nobody listens). Before, it was an Internal span
+    under a parent nobody recorded, which OpenTelemetry's default parent-based sampler dropped.
+  - A client stream canceled through the method's `cancellationToken` is `a2a.canceled`, not an error.
+  - A run stopped by host shutdown is tagged `a2a.interrupted` instead of `a2a.canceled`.
+  - Upload spans record failures with `error.type`, and a caller's cancel is not an error.
+  - The v0.3 gRPC client sends `traceparent` and `tracestate`. Headers in `A2ARequestOptions.Headers` now replace SDK
+    metadata of the same name, as on the other transports.
+  - `a2a.server.artifact.bytes.served` is on the same meter name and version as the other `A2A.Server` counters.
+  - The observability guide lists every counter (`a2a.client.interface.fallback` was missing) and the exact log id
+    ranges, and the client OpenTelemetry snippet adds the `A2A` meter.
 - Serializing a task with `A2AJson` no longer builds its `History`, `Timeline` and artifact `Parts` lists: the JSON
   contract writes them from the shared buffer (ADR-004 follow-up), and the bytes are unchanged. 2,000 single appends
   serialized on each commit: 72.5 MB to 40.2 MB allocated. When reading fails, a conversion error on `history`,

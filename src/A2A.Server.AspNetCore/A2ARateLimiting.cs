@@ -151,6 +151,9 @@ internal sealed class A2ARateLimitGate : IDisposable
 
         using (lease)
         {
+            var wait = lease.TryGetMetadata(MetadataName.RetryAfter, out var after) ? after : _replenishmentPeriod;
+            RefusedCalls.RecordBeforeEndpoint(http,
+                A2AException.RateLimited(wait < TimeSpan.FromSeconds(1) ? TimeSpan.FromSeconds(1) : wait));
             http.Response.StatusCode = StatusCodes.Status429TooManyRequests;
             if (_policy.OnRejected is { } onRejected)
                 await onRejected(new OnRejectedContext { HttpContext = http, Lease = lease }, http.RequestAborted)
@@ -175,6 +178,11 @@ internal sealed class A2ARateLimitGate : IDisposable
 ///     Takes the limit for A2A endpoints after authentication and before the authorization result is acted on, so callers
 ///     with wrong credentials are limited too. Other endpoints pass straight through.
 /// </summary>
+/// <remarks>
+///     It is also where a request to an A2A endpoint that the authorization middleware refuses (a challenge or a forbid)
+///     is recorded (<see cref="RefusedCalls.RecordBeforeEndpoint" />): such a request never reaches A2A code otherwise, so
+///     it would get no operation span, no <c>a2a.server.requests</c> count and no security event.
+/// </remarks>
 internal sealed class A2ARateLimitAuthorizationResultHandler(
     IAuthorizationMiddlewareResultHandler inner,
     A2ARateLimitGate gate) : IAuthorizationMiddlewareResultHandler
@@ -185,6 +193,7 @@ internal sealed class A2ARateLimitAuthorizationResultHandler(
         if (context.GetEndpoint()?.Metadata.GetMetadata<A2ARateLimitMetadata>() is not null
             && !await gate.TryEnterAsync(context).ConfigureAwait(false))
             return;
+        if (RefusedCalls.ErrorOf(authorizeResult) is { } refused) RefusedCalls.RecordBeforeEndpoint(context, refused);
         await inner.HandleAsync(next, context, policy, authorizeResult).ConfigureAwait(false);
     }
 }

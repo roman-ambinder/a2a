@@ -25,7 +25,9 @@ namespace A2A.Server;
 ///             <description>1200-1299: security events (<see cref="Telemetry.SecurityEventLog" />).</description>
 ///         </item>
 ///     </list>
-///     The other assemblies use 100-199 (A2A.Client), 500-899 (A2A.Server.AspNetCore) and 900-999 (A2A.Server.Grpc).
+///     The other assemblies use 100-199 (A2A.Client), 500-899 (A2A.Server.AspNetCore), 900-999 (A2A.Server.Grpc),
+///     1000-1099 (A2A.Server.Postgres), 1100-1199 (A2A.Server.Redis), 1500-1599 (A2A.Mcp), 1600-1699 (A2A.V0_3Compat),
+///     1700-1799 (A2A.Server.V0_3Compat) and 1800-1899 (A2A.Extensions.AgentFramework).
 /// </summary>
 internal static partial class ServerLog
 {

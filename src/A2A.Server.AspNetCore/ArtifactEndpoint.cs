@@ -31,7 +31,10 @@ internal sealed class ArtifactEndpoint(
 
     private const int BufferSize = 81920;
 
-    private static readonly Meter Meter = new(A2ATelemetry.ServerMeterName);
+    // The same name and version as the A2A.Server meter (the A2A.Server assembly's version), so OpenTelemetry exports this
+    // counter under the same instrumentation scope as the other server counters.
+    private static readonly Meter Meter = new(A2ATelemetry.ServerMeterName,
+        typeof(A2ARequestHandler).Assembly.GetName().Version?.ToString());
 
     private static readonly Counter<long> BytesServed =
         Meter.CreateCounter<long>("a2a.server.artifact.bytes.served", "By",
