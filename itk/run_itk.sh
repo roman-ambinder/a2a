@@ -1,4 +1,15 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# The shared driver needs bash 4 or later (${VAR^^}). macOS ships bash 3.2 as /bin/bash; use a newer one when there is.
+if [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
+  for candidate in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+    if [ -x "$candidate" ] && "$candidate" -c '[ "${BASH_VERSINFO[0]}" -ge 4 ]'; then
+      exec "$candidate" "$0" "$@"
+    fi
+  done
+  echo "itk/run_itk.sh needs bash 4 or later; this is bash $BASH_VERSION. On macOS: brew install bash" >&2
+  exit 2
+fi
+
 # Runs the a2a-itk cross-SDK traversal suite with this SDK's agent (this folder) as the system under test.
 # A thin shim over a2a-itk's shared driver, like the itk/run_itk.sh of the official SDKs. See README.md.
 #

@@ -20,7 +20,7 @@ The contract is a2a-itk's `docs/interoperability/05_sdk-integration.md`:
 
 ## Run
 
-Needs Docker (or Podman), git and curl. It runs code downloaded from a2a-itk and from every peer SDK, in a container.
+Needs Docker (or Podman), git, curl and bash 4 or later (on macOS, `brew install bash`; the script finds it). It runs code downloaded from a2a-itk and from every peer SDK, in a container.
 
 ```bash
 itk/run_itk.sh
