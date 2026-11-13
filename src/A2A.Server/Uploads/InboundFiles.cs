@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using A2A.Diagnostics;
@@ -109,7 +108,7 @@ internal sealed class InboundFiles
             }
             catch (Exception ex)
             {
-                activity?.SetStatus(ActivityStatusCode.Error, ex.GetType().Name);
+                A2ATelemetry.RecordError(activity, ex, cancellationToken.IsCancellationRequested);
                 throw;
             }
         }

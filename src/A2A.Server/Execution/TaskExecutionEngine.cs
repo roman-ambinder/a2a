@@ -82,6 +82,12 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
     /// </summary>
     internal const string BudgetExceededText = "Task exceeded its budget";
 
+    /// <summary>
+    ///     Set (true) on a run span whose agent the host's shutdown stopped: nobody cancelled the task, which stays
+    ///     non-terminal for the lease expiry, the sweep or a continuation. Not an error, and not <c>a2a.canceled</c>.
+    /// </summary>
+    internal const string InterruptedTag = "a2a.interrupted";
+
     private const string ExecuteKind = "execute";
     private const string CancelKind = "cancel";
 
@@ -586,11 +592,17 @@ public sealed partial class TaskExecutionEngine : IDisposable, IAsyncDisposable
             }
             catch (OperationCanceledException) when (exec.Cts.IsCancellationRequested)
             {
-                exec.Activity?.SetTag(A2ATelemetry.ErrorTypeCanceledTag, true);
                 // Only the engine's shutdown fired the token: nobody cancelled the task, so it stays as it is (non-terminal) for
-                // the lease expiry, the sweep or a continuation.
+                // the lease expiry, the sweep or a continuation, and the run span says it was interrupted, not canceled.
                 if (exec.CancelRequested)
+                {
+                    exec.Activity?.SetTag(A2ATelemetry.ErrorTypeCanceledTag, true);
                     await TryFinishAsync(updater, TaskState.Canceled, null).ConfigureAwait(false);
+                }
+                else
+                {
+                    exec.Activity?.SetTag(InterruptedTag, true);
+                }
             }
             catch (ChannelClosedException ex) when (exec.Failed)
             {

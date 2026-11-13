@@ -70,6 +70,7 @@ A client reconnect adds an `a2a.retry` span event with `a2a.retry.attempt`. A fa
 | `a2a.stream.event_count` | stream spans | events sent or received |
 | `a2a.execution.kind` | run spans | `execute`, `cancel` or `continue` |
 | `a2a.execution.timed_out` | run spans | `true` when `MaxTaskDuration` ended the run |
+| `a2a.interrupted` | run spans | `true` when the host's shutdown stopped the agent. Nobody canceled the task, so it stays in its state (for example `TASK_STATE_WORKING`) for the lease expiry, the sweep or a continuation. Not an error, and not `a2a.canceled` |
 | `a2a.push.config.id`, `a2a.push.sequence`, `a2a.push.attempts` | delivery spans | |
 | `server.address` | delivery spans | the webhook host only |
 | `http.response.status_code` | delivery spans | the webhook's answer |
@@ -78,7 +79,9 @@ A client reconnect adds an `a2a.retry` span event with `a2a.retry.attempt`. A fa
 
 A failed operation gets status `Error`, the `error.type` tag and, for A2A errors, `a2a.error.code` (the <xref:A2A.A2AErrorCode> name, for example `TaskNotFound`). For an A2A error, `error.type` is the A2A reason (`TASK_NOT_FOUND`). For a non-A2A exception, it is the full exception type name (for example `System.InvalidOperationException`).
 
-A run span is an error when the agent throws, when it hits <xref:A2A.Server.A2AServerOptions.MaxTaskDuration> (`error.type` is `TimeLimit`), when it goes past its usage budget (`error.type` is `BudgetExceeded`; see [Execution limits](execution-limits.md)), or when it leaves the task `FAILED` (`error.type` is `TaskFailed`). A cancellation the caller asked for sets `a2a.canceled` to `true` and is not an error.
+A run span is an error when the agent throws, when it hits <xref:A2A.Server.A2AServerOptions.MaxTaskDuration> (`error.type` is `TimeLimit`), when it goes past its usage budget (`error.type` is `BudgetExceeded`; see [Execution limits](execution-limits.md)), or when it leaves the task `FAILED` (`error.type` is `TaskFailed`). A cancellation the caller asked for sets `a2a.canceled` to `true` and is not an error. A run that the host's shutdown stopped sets `a2a.interrupted` instead, and is not an error either.
+
+An upload span (`a2a.artifact.upload`) whose write fails follows the same rules: status `Error` and `error.type`. An upload the caller canceled sets `a2a.canceled` to `true` and is not an error.
 
 ## Health checks
 
@@ -122,7 +125,7 @@ All counters are `Counter<long>`, except the two up-down counters `a2a.server.ex
 | `A2A.Server` | `a2a.server.anomalies` | `a2a.anomaly.kind` (`task_creation`, `cancellation`) | callers over an anomaly threshold, once per caller and window. See [Anomaly detection](#anomaly-detection) |
 | `A2A.Server` | `a2a.server.artifact.objects.written` | none | objects written to the artifact object store |
 | `A2A.Server` | `a2a.server.artifact.bytes.written` | none | bytes written to the artifact object store |
-| `A2A.Server` | `a2a.server.artifact.bytes.served` | none | artifact bytes the server streamed to callers (redirects are not counted) |
+| `A2A.Server` | `a2a.server.artifact.bytes.served` | none | artifact bytes the server streamed to callers (redirects are not counted). Comes from `A2A.Server.AspNetCore`, under the same meter name and version as the other `A2A.Server` counters |
 | `A2A.Server` | `a2a.server.artifact.orphans.deleted` | none | orphan objects the retention sweep deleted. See [Artifact storage](artifact-storage.md) |
 | `A2A.Server` | `a2a.server.artifact.uploads.purged` | none | unused inbound uploads the retention sweep deleted |
 | `A2A` | `a2a.idempotency.evictions` | none | idempotency entries dropped early because the in-memory store was full |
