@@ -27,6 +27,10 @@ public static class ServerSetup
         services.AddOpenTelemetry()
             .WithTracing(t => t
                 .AddSource(A2ATelemetry.ClientSourceName)
+                .AddOtlpExporter())
+            // Card, endpoint policy, registry, circuit breaker and interface fallback counters.
+            .WithMetrics(m => m
+                .AddMeter("A2A")
                 .AddOtlpExporter());
         #endregion
     }

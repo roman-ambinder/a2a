@@ -18,7 +18,7 @@ public static class A2ATelemetry
     /// <summary>
     ///     Source of the server spans: one per operation (named after the method, for example <c>GetTask</c>), one per agent
     ///     run
-    ///     (<see cref="SpanNames.AgentExecution" />) and one per webhook delivery (<see cref="SpanNames.PushDelivery" />).
+    ///     (<see cref="SpanNames.AgentExecution" />) and one per webhook delivery attempt (<see cref="SpanNames.PushDelivery" />).
     /// </summary>
     public const string ServerSourceName = "A2A.Server";
 
@@ -313,10 +313,13 @@ public static class A2ATelemetry
     /// </summary>
     public static class SpanNames
     {
-        /// <summary>One run of the agent executor for a task (execute or cancel).</summary>
+        /// <summary>One run of the agent executor for a task (execute, cancel or continue).</summary>
         public const string AgentExecution = "a2a.agent.execute";
 
-        /// <summary>Delivery of one event to one webhook, including retries.</summary>
+        /// <summary>
+        ///     One attempt to deliver one event to one webhook. A retry is a new span in the same trace, with a higher
+        ///     <see cref="Tags.PushAttempts" />.
+        /// </summary>
         public const string PushDelivery = "a2a.push.deliver";
     }
 
@@ -371,7 +374,7 @@ public static class A2ATelemetry
         /// <summary>Number of events a stream sent or received.</summary>
         public const string StreamEventCount = "a2a.stream.event_count";
 
-        /// <summary>Agent run kind: <c>execute</c> or <c>cancel</c>.</summary>
+        /// <summary>Agent run kind: <c>execute</c>, <c>cancel</c> or <c>continue</c>.</summary>
         public const string ExecutionKind = "a2a.execution.kind";
 
         /// <summary>True when the agent run hit <c>MaxTaskDuration</c>.</summary>
@@ -494,7 +497,10 @@ public static class A2ATelemetry
         /// <summary>A client stream reconnected (or a webhook delivery attempt failed and is retried).</summary>
         public const string Retry = "a2a.retry";
 
-        /// <summary>Tag of a stream event: <c>task</c>, <c>message</c>, <c>status_update</c> or <c>artifact_update</c>.</summary>
+        /// <summary>
+        ///     Tag of a stream event: <c>task</c>, <c>message</c>, <c>status_update</c>, <c>artifact_update</c>,
+        ///     <c>message_update</c> or <c>stream_error</c> (see <see cref="EventKindOf" />).
+        /// </summary>
         public const string EventKind = "a2a.event.kind";
 
         /// <summary>Tag of a stream event: its event store sequence (server).</summary>
