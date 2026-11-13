@@ -104,6 +104,24 @@ public class CardCachingTests
         return r;
     }
 
+    // Found by a2a-itk: the official A2A .NET SDK reads a card request without A2A-Version as a v0.3 client's, and its
+    // blended card then says pushNotifications false, so this client refused to register push with it.
+    [Fact]
+    public async Task The_card_request_says_it_is_a_v1_client()
+    {
+        var host = new CardHost(req =>
+        {
+            var v1 = req.Headers.TryGetValues(A2AProtocol.Headers.Version, out var values) && values.Single() == "1.0";
+            var card = SigningTests.SampleCard();
+            card.Capabilities.PushNotifications = v1;
+            return new HttpResponseMessage(HttpStatusCode.OK)
+                { Content = new StringContent(A2AJson.Serialize(card), Encoding.UTF8, "application/json") };
+        });
+        var resolved = await new A2ACardResolver(new HttpClient(host)).ResolveAsync(Agent);
+        Assert.True(resolved.Card.Capabilities.PushNotifications);
+        Assert.Equal(A2AProtocol.Version, Assert.Single(host.Requests.Single().Headers.GetValues(A2AProtocol.Headers.Version)));
+    }
+
     [Fact]
     public async Task A_no_store_card_is_fetched_again_and_no_validator_is_sent()
     {

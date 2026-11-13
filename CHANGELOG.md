@@ -100,6 +100,33 @@ One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpl
 
 ### Protocol and bindings
 
+- **gRPC errors fit in an 8 KiB trailer budget** ([A2A#2433](https://github.com/a2aproject/A2A/issues/2433)). gRPC
+  sends error details in trailers, which grpc-java and the gRPC C core cap at 8 KiB; an error over the cap is lost
+  whole. `GrpcErrors.ToStatus` now keeps the status message to 1 KiB of UTF-8 and the whole `google.rpc.Status` to
+  3 KiB. To fit, it drops `BadRequest` details first, then the largest `ErrorInfo` metadata entries, then cuts the
+  message. The `ErrorInfo` reason, `retryable`, `retryAfter` and `RetryInfo` always stay, and
+  `ErrorInfo.metadata.truncated` is `"true"` when something was left out. Before, a custom operation that threw an
+  `A2AException` with large metadata sent it all, about 56 KB in the test. The HTTP bindings are unchanged.
+- **`UseGrpc().UseGrpcV03()` no longer hides v1.0 gRPC.** The client asked only the last transport factory registered
+  for a binding whether it could serve an interface. With the v0.3 gRPC factory registered after the v1.0 one, a
+  v1.0 gRPC interface was never selected, and `V03CompatClientFactory` failed with "No supported interface". Now the
+  last factory for the binding that can create the interface is used, so the two calls work in either order. The
+  error message of `V03CompatClientFactory` also lists gRPC when a v0.3 gRPC transport is registered.
+- **Card requests send `A2A-Version: 1.0`.** `A2ACardResolver` sent only `Accept`. A server that also serves v0.3
+  reads a request without the header as a v0.3 client's (spec 3.6.2): the official A2A .NET SDK then serves its blended
+  card, which says `pushNotifications: false` when its push is v1-only, so this client refused to send it a push
+  config ("Push notifications are not supported"). Found by the ITK run. A v0.3-only server ignores the header, and
+  this SDK's card endpoint serves the same card either way.
+- **Cleartext gRPC at a bare `host:port`.** The client reads a card's gRPC address without a scheme as TLS, as the proto
+  comment says, but some SDKs and every a2a-itk agent list cleartext gRPC that way, so this client could not reach
+  them over gRPC. New `UseGrpc(channelOptions, useTlsForSchemeLessAddresses)` overload, `GrpcTransportFactory`
+  constructor and `GrpcTransport.ParseAddress(url, useTlsForSchemeLessAddresses)`; `UseGrpcV03` takes the same optional
+  parameter. The default stays TLS, and an explicit `https://` or `http://` is always used as it is. The ITK agent
+  uses it instead of its loopback-only workaround.
+- **ITK cross-SDK suite.** New `itk/` agent and `itk/run_itk.sh` for [a2a-itk](https://github.com/a2aproject/a2a-itk)'s
+  traversal suite, which checks this SDK against the Python, Go, TypeScript, Java, Rust and official .NET SDKs. A new
+  CI job `itk` runs the PR set; it is not part of `all-green` yet. A nightly workflow (`itk-nightly.yml`) runs the nightly set against every peer in the matrix,
+  and `itk/check_results.py` fails it on any failed scenario, since the driver's nightly path exits 0.
 - Fixes from the review of the compatibility changes (roman-ambinder/a2a#159):
   - **v0.3 HTTP+JSON client.** `ListTasksAsync` returns a next page token when `pageSize` cuts the list, so paging on
     reaches every task. Before, the tasks past the first page were lost.

@@ -1,3 +1,10 @@
 #nullable enable
 A2A.Client.Grpc.GrpcTransportFactory.Create(A2A.AgentInterface! agentInterface, System.Net.Http.HttpClient! httpClient, A2A.Client.A2AClientOptions! options) -> A2A.Client.IA2ATransport!
 *REMOVED*A2A.Client.Grpc.GrpcTransportFactory.Create(A2A.AgentInterface! agentInterface, System.Net.Http.HttpClient! httpClient, A2A.Client.A2AClientOptions! options) -> A2A.Client.IA2AClient!
+*REMOVED*A2A.Client.Grpc.GrpcTransportFactory.GrpcTransportFactory(Grpc.Net.Client.GrpcChannelOptions? channelOptions = null) -> void
+A2A.Client.Grpc.GrpcTransportFactory.GrpcTransportFactory(Grpc.Net.Client.GrpcChannelOptions? channelOptions) -> void
+A2A.Client.Grpc.GrpcTransportFactory.GrpcTransportFactory(Grpc.Net.Client.GrpcChannelOptions? channelOptions = null, bool useTlsForSchemeLessAddresses = true) -> void
+*REMOVED*static A2A.Client.Grpc.A2AGrpcClientOptionsExtensions.UseGrpc(this A2A.Client.A2AClientOptions! options, Grpc.Net.Client.GrpcChannelOptions? channelOptions = null) -> A2A.Client.A2AClientOptions!
+static A2A.Client.Grpc.A2AGrpcClientOptionsExtensions.UseGrpc(this A2A.Client.A2AClientOptions! options, Grpc.Net.Client.GrpcChannelOptions? channelOptions) -> A2A.Client.A2AClientOptions!
+static A2A.Client.Grpc.A2AGrpcClientOptionsExtensions.UseGrpc(this A2A.Client.A2AClientOptions! options, Grpc.Net.Client.GrpcChannelOptions? channelOptions = null, bool useTlsForSchemeLessAddresses = true) -> A2A.Client.A2AClientOptions!
+static A2A.Client.Grpc.GrpcTransport.ParseAddress(string! url, bool useTlsForSchemeLessAddresses) -> System.Uri!

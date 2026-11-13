@@ -44,6 +44,22 @@ public class PushConfigTests : IAsyncLifetime
         Assert.Equal("", listed.Authentication!.Credentials);
     }
 
+    // A2A#2126: the spec has no error for an unknown config id. Pinned so a change to follow the spec is deliberate.
+    [Theory]
+    [MemberData(nameof(Bindings))]
+    public async Task Get_of_an_unknown_config_is_TaskNotFound_with_the_config_id(string binding)
+    {
+        var client = _host.Client(binding, "alice");
+        var task = (await client.SendMessageAsync("input")).RequireTask();
+
+        var ex = await Assert.ThrowsAsync<A2AException>(() => client.GetTaskPushNotificationConfigAsync(
+            new GetTaskPushNotificationConfigRequest { TaskId = task.Id, Id = "never-existed" }));
+        Assert.Equal(A2AErrorCode.TaskNotFound, ex.Code);
+        Assert.Equal("Push notification config not found", ex.Message);
+        Assert.Equal(task.Id, ex.Metadata!["taskId"]);
+        Assert.Equal("never-existed", ex.Metadata["configId"]);
+    }
+
     [Theory]
     [MemberData(nameof(Bindings))]
     public async Task Delete_is_idempotent_and_an_unknown_task_is_still_not_found(string binding)

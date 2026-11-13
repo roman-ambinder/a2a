@@ -1,0 +1,41 @@
+name: ITK cross-SDK (nightly)
+
+# a2a-itk's nightly set: this SDK's agent (itk/) against every peer in a2a-itk's matrix (Python, Go, TypeScript, Java,
+# Rust and the official .NET SDK, v1.0 and v0.3 lines), one pair at a time. The PR set in ci.yml covers only a few
+# peers. The driver's nightly path records failures as metrics and exits 0, so itk/check_results.py decides the result.
+on:
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  itk-nightly:
+    name: ITK nightly set
+    runs-on: ubuntu-latest
+    # Every peer, one pair at a time; a2a-itk's own nightly runs take hours for some SDKs.
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7
+
+      # a2a-itk revision pinned in itk/run_itk.sh. The agent is built inside the ITK image, which has its own .NET SDK.
+      - name: Run the ITK nightly set
+        env:
+          ITK_NIGHTLY_RUN: 'TRUE'
+        run: itk/run_itk.sh
+
+      - name: Check the results
+        if: always()
+        run: python3 itk/check_results.py itk/raw_results.json
+
+      - name: Upload the results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: itk-nightly-results
+          path: |
+            itk/raw_results.json
+            itk/itk_*.json
+          if-no-files-found: warn

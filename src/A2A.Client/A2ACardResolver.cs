@@ -251,6 +251,10 @@ public sealed class A2ACardResolver
         using var request = new HttpRequestMessage(HttpMethod.Get, uri);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(A2AProtocol.AgentCardMediaType));
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(A2AProtocol.JsonMediaType, 0.9));
+        // A server that also speaks v0.3 reads a request without A2A-Version as a v0.3 client (spec 3.6.2) and may serve a
+        // card for one: the official A2A .NET SDK's blended card says pushNotifications false when its push is v1-only.
+        // This resolver reads v1.0 cards; a v0.3-only server ignores the header.
+        request.Headers.TryAddWithoutValidation(A2AProtocol.Headers.Version, A2AProtocol.Version);
         if (cached?.ETag is not null) request.Headers.IfNoneMatch.Add(cached.ETag);
         else if (cached?.LastModified is { } lastModified) request.Headers.IfModifiedSince = lastModified;
 

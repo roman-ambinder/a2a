@@ -57,7 +57,7 @@ gRPC needs HTTP/2. Over TLS, Kestrel can serve HTTP/1.1 and HTTP/2 on one port. 
 
 [!code-csharp[](../../../samples/Snippets/Bindings.cs#Http2)]
 
-In the card, a gRPC interface URL is the server address, with no path. If the card lists no interfaces, the URL is completed from <xref:A2A.Server.AspNetCore.A2AHttpOptions.PublicBaseUrl> (or the first listen address). Over TLS it is written as `host:port`; a plain-text address keeps `http://host:port`.
+In the card, a gRPC interface URL is the server address, with no path. If the card lists no interfaces, the URL is completed from <xref:A2A.Server.AspNetCore.A2AHttpOptions.PublicBaseUrl> (or the first listen address). Over TLS it is written as `host:port`; a plain-text address keeps `http://host:port`. A client reads a bare `host:port` as TLS. To call an agent of another SDK that lists cleartext gRPC in that form, use `UseGrpc(channelOptions, useTlsForSchemeLessAddresses: false)`; see [Spec decisions](spec-decisions.md#protocol-choices).
 
 ## How the client picks
 
@@ -81,7 +81,7 @@ A runnable version, with a gRPC port, the card order and all three client choice
 
 | | JSON-RPC and HTTP+JSON | gRPC |
 |---|---|---|
-| Errors | JSON-RPC error object (HTTP 200 for most errors), or a `google.rpc.Status` body over HTTP+JSON | `google.rpc.Status` with an `ErrorInfo` detail. `retryable` and `retryAfter` are in its metadata. `RetryInfo` is added on rate limits. A validation error of a request field also carries a `BadRequest`, as on the HTTP bindings. |
+| Errors | JSON-RPC error object (HTTP 200 for most errors), or a `google.rpc.Status` body over HTTP+JSON | `google.rpc.Status` with an `ErrorInfo` detail. `retryable` and `retryAfter` are in its metadata. `RetryInfo` is added on rate limits. A validation error of a request field also carries a `BadRequest`, as on the HTTP bindings. A status is capped to fit gRPC trailer limits; see [Spec decisions](spec-decisions.md#protocol-choices). |
 | Request headers | `A2A-Version`, `A2A-Extensions`, `Idempotency-Key` | `a2a-version`, `a2a-extensions`, `idempotency-key` metadata |
 | Extensions echo | `A2A-Extensions` response header, also on errors | `a2a-extensions` initial metadata on success; in the trailers when the call fails |
 | Extension operations | `POST /ext/{method}`, or a JSON-RPC method | `a2a.extensions.v1.A2AExtensionService`, unary only. Map it with `MapA2AGrpcExtensions`. |

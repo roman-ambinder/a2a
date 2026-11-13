@@ -87,7 +87,110 @@ public static class GrpcErrors
                 if (ToBadRequest(detail) is { } badRequest)
                     status.Details.Add(Any.Pack(badRequest));
 
+        FitHeaderBudget(status, info);
         return status;
+    }
+
+    /// <summary>
+    ///     The largest <c>google.rpc.Status</c>, in serialized bytes, that <see cref="ToStatus" /> returns. gRPC sends the
+    ///     status in the <c>grpc-status-details-bin</c> trailer (base64, so 4/3 of this) next to <c>grpc-message</c>, and
+    ///     peers cap trailers at 8 KiB (grpc-java, gRPC C core) or 16 KiB (tonic); an error over the cap is lost whole
+    ///     (A2A#2433). 3 KiB leaves room for the message and the other trailers under 8 KiB.
+    /// </summary>
+    internal const int MaxStatusBytes = 3 * 1024;
+
+    /// <summary>
+    ///     The largest status message, in UTF-8 bytes. The message is sent twice (in the status and percent-encoded in
+    ///     <c>grpc-message</c>, up to 3 bytes per byte), so it has its own cap.
+    /// </summary>
+    internal const int MaxMessageBytes = 1024;
+
+    /// <summary>The <c>ErrorInfo</c> metadata key that says <see cref="ToStatus" /> left something out to fit the cap.</summary>
+    internal const string TruncatedKey = "truncated";
+
+    /// <summary>
+    ///     Shrinks <paramref name="status" /> to <see cref="MaxStatusBytes" />: first the message to
+    ///     <see cref="MaxMessageBytes" />, then the <c>BadRequest</c> details from the last one, then the
+    ///     <c>ErrorInfo</c> metadata from the largest entry, then the message again. The <c>ErrorInfo</c> itself, its reason,
+    ///     domain, <c>retryable</c> and <c>retryAfter</c>, and the <c>RetryInfo</c> always stay, so the client still gets
+    ///     the A2A error code and its retry advice. When anything was left out, <c>ErrorInfo.metadata.truncated</c> is
+    ///     <c>"true"</c>.
+    /// </summary>
+    private static void FitHeaderBudget(Status status, ErrorInfo info)
+    {
+        var truncated = false;
+        var message = Truncate(status.Message, MaxMessageBytes);
+        if (!ReferenceEquals(message, status.Message))
+        {
+            status.Message = message;
+            truncated = true;
+        }
+
+        if (status.CalculateSize() > MaxStatusBytes)
+        {
+            truncated = true;
+            for (var i = status.Details.Count - 1; i >= 0 && status.CalculateSize() > MaxStatusBytes; i--)
+                if (status.Details[i].Is(BadRequest.Descriptor))
+                    status.Details.RemoveAt(i);
+
+            var removable = info.Metadata
+                .Where(kv => kv.Key is not ("retryable" or "retryAfter"))
+                .OrderByDescending(kv => kv.Key.Length + kv.Value.Length)
+                .Select(kv => kv.Key)
+                .ToList();
+            var infoIndex = IndexOf(status, ErrorInfo.Descriptor);
+            foreach (var key in removable)
+            {
+                if (status.CalculateSize() <= MaxStatusBytes) break;
+                info.Metadata.Remove(key);
+                info.Metadata[TruncatedKey] = "true";
+                status.Details[infoIndex] = Any.Pack(info);
+            }
+
+            // Only the message is left to cut. Its length prefix can shrink by a byte as it gets shorter, so cut and measure.
+            while (status.CalculateSize() > MaxStatusBytes && status.Message.Length > 0)
+            {
+                var over = status.CalculateSize() - MaxStatusBytes;
+                var bytes = System.Text.Encoding.UTF8.GetByteCount(status.Message);
+                var cut = Truncate(status.Message, Math.Max(0, bytes - over));
+                status.Message = cut.Length < status.Message.Length ? cut : "";
+            }
+        }
+
+        if (truncated && !info.Metadata.ContainsKey(TruncatedKey))
+        {
+            info.Metadata[TruncatedKey] = "true";
+            status.Details[IndexOf(status, ErrorInfo.Descriptor)] = Any.Pack(info);
+        }
+    }
+
+    private static int IndexOf(Status status, Google.Protobuf.Reflection.MessageDescriptor descriptor)
+    {
+        for (var i = 0; i < status.Details.Count; i++)
+            if (status.Details[i].Is(descriptor))
+                return i;
+        throw new InvalidOperationException("The status has no " + descriptor.Name);
+    }
+
+    /// <summary>
+    ///     <paramref name="value" /> cut to at most <paramref name="maxBytes" /> UTF-8 bytes on a character boundary, ending
+    ///     in "..." when cut (when the budget has room for it); the same instance when it fits.
+    /// </summary>
+    internal static string Truncate(string value, int maxBytes)
+    {
+        if (System.Text.Encoding.UTF8.GetByteCount(value) <= maxBytes) return value;
+        var ellipsis = maxBytes >= 3 ? "..." : ""; // a budget under 3 bytes has no room for it
+        var budget = Math.Max(0, maxBytes - ellipsis.Length);
+        var sb = new System.Text.StringBuilder();
+        var used = 0;
+        foreach (var rune in value.EnumerateRunes())
+        {
+            if (used + rune.Utf8SequenceLength > budget) break;
+            sb.Append(rune.ToString());
+            used += rune.Utf8SequenceLength;
+        }
+
+        return sb.Append(ellipsis).ToString();
     }
 
     /// <summary>The <c>google.rpc.BadRequest</c> in a ProtoJSON detail entry, or null when the entry is another type.</summary>
