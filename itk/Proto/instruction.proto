@@ -1,5 +1,5 @@
 // Copy of protos/instruction.proto from a2aproject/a2a-itk (Apache-2.0), at the revision in run_itk.sh.
-// run_itk.sh overwrites it with that revision's copy before each run, so a change upstream shows as a diff here.
+// itk/run_itk.sh stops when it differs from that revision's copy (lines 4 onward), so a change upstream is noticed.
 
 syntax = "proto3";
 

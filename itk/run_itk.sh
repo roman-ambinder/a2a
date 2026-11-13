@@ -21,7 +21,8 @@ ITK_SDK_NAME=dotnet
 ITK_MATRIX_SDK=dotnet
 ITK_METRICS_NAME=roman-ambinder-a2a
 ITK_SCENARIO_SET=shared
-# instruction.proto is committed with a header; the check below compares it with the pinned revision instead.
+# Our copy is committed as Proto/instruction.proto, with a header; the check below compares it with the pinned
+# revision. It is not at ./instruction.proto, because the driver deletes that file when a run ends.
 ITK_COPY_PROTO=0
 
 # The agent is published inside the container on first spawn, only when publish/ is absent; remove it so a later run
@@ -33,10 +34,14 @@ if [ ! -d a2a-itk ]; then
 fi
 (cd a2a-itk && git fetch -q origin && git checkout -q "$A2A_ITK_REVISION")
 
-# The committed proto must match the pinned revision's (minus its two header lines).
-if ! diff <(tail -n +4 instruction.proto) a2a-itk/protos/instruction.proto > /dev/null; then
-  echo "itk/instruction.proto differs from a2a-itk $A2A_ITK_REVISION. Update it:" >&2
-  diff <(tail -n +4 instruction.proto) a2a-itk/protos/instruction.proto >&2 || true
+# The committed proto must match the pinned revision's (minus its two header lines and a blank line).
+if [ ! -f Proto/instruction.proto ]; then
+  echo "itk/Proto/instruction.proto is missing. Restore it: git restore itk/Proto/instruction.proto" >&2
+  exit 2
+fi
+if ! diff <(tail -n +4 Proto/instruction.proto) a2a-itk/protos/instruction.proto > /dev/null; then
+  echo "itk/Proto/instruction.proto differs from a2a-itk $A2A_ITK_REVISION. Update it:" >&2
+  diff <(tail -n +4 Proto/instruction.proto) a2a-itk/protos/instruction.proto >&2 || true
   exit 2
 fi
 

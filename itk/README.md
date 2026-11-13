@@ -11,7 +11,7 @@ The contract is a2a-itk's `docs/interoperability/05_sdk-integration.md`:
 - Started as `dotnet Itk.dll --httpPort N --grpcPort M`. HTTP/1.1 on N serves JSON-RPC and HTTP+JSON at `/jsonrpc`,
   v1.0 and v0.3 on the same URL (`EnableV03Compat`), and the Agent Card at `/.well-known/agent-card.json`.
   Cleartext HTTP/2 on M serves gRPC, v1.0 and v0.3.
-- An incoming message whose part holds an `itk.Instruction` (`instruction.proto`, a copy of a2a-itk's) is run:
+- An incoming message whose part holds an `itk.Instruction` (`Proto/instruction.proto`, a copy of a2a-itk's) is run:
   `ReturnResponse` answers (and with `hold_task` stays `WORKING` until canceled), `SeriesOfSteps` runs its children in
   order, and `CallAgent` forwards the nested instruction with this SDK's client, over the named transport, with the
   `send_message`, `push_notification` or `resubscribe` behaviour.
@@ -30,7 +30,7 @@ itk/run_itk.sh
 ITK_NIGHTLY_RUN=TRUE itk/run_itk.sh   # every peer in the matrix, one pair at a time
 ```
 
-The a2a-itk revision is pinned in `run_itk.sh` (`A2A_ITK_REVISION`). The script stops when `instruction.proto` no
+The a2a-itk revision is pinned in `run_itk.sh` (`A2A_ITK_REVISION`). The script stops when `Proto/instruction.proto` no
 longer matches that revision's copy. Combinations that are known to fail are recorded in a2a-itk's
 `known_failures.yaml` under `sut_sdk: dotnet`, the matrix key this SDK runs under.
 

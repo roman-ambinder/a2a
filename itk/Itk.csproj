@@ -18,6 +18,7 @@
   <ItemGroup>
     <PackageReference Include="Google.Protobuf" />
     <PackageReference Include="Grpc.Tools" PrivateAssets="all" />
-    <Protobuf Include="instruction.proto" GrpcServices="None" />
+    <!-- Not itk/instruction.proto: a2a-itk's driver deletes that path when a run ends. -->
+    <Protobuf Include="Proto/instruction.proto" GrpcServices="None" />
   </ItemGroup>
 </Project>
