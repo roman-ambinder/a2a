@@ -112,6 +112,11 @@ One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpl
   v1.0 gRPC interface was never selected, and `V03CompatClientFactory` failed with "No supported interface". Now the
   last factory for the binding that can create the interface is used, so the two calls work in either order. The
   error message of `V03CompatClientFactory` also lists gRPC when a v0.3 gRPC transport is registered.
+- **Card requests send `A2A-Version: 1.0`.** `A2ACardResolver` sent only `Accept`. A server that also serves v0.3
+  reads a request without the header as a v0.3 client's (spec 3.6.2): the official A2A .NET SDK then serves its blended
+  card, which says `pushNotifications: false` when its push is v1-only, so this client refused to send it a push
+  config ("Push notifications are not supported"). Found by the ITK run. A v0.3-only server ignores the header, and
+  this SDK's card endpoint serves the same card either way.
 - **ITK cross-SDK suite.** New `itk/` agent and `itk/run_itk.sh` for [a2a-itk](https://github.com/a2aproject/a2a-itk)'s
   traversal suite, which checks this SDK against the Python, Go, TypeScript, Java, Rust and official .NET SDKs. A new
   CI job `itk` runs the PR set; it is not part of `all-green` yet.
