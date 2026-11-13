@@ -10,7 +10,7 @@ On the server, listen to the `A2A.Server` source and to the two meters:
 
 [!code-csharp[](../../../samples/Snippets/Observability.cs#ServerOpenTelemetry)]
 
-On a client process, listen to `A2A.Client`:
+On a client process, listen to the `A2A.Client` source and to the `A2A` meter:
 
 [!code-csharp[](../../../samples/Snippets/Observability.cs#ClientOpenTelemetry)]
 
@@ -19,7 +19,7 @@ On a client process, listen to `A2A.Client`:
 | `A2A.Server` | <xref:A2A.Diagnostics.A2ATelemetry.ServerSourceName> | server spans |
 | `A2A.Client` | <xref:A2A.Diagnostics.A2ATelemetry.ClientSourceName> | client spans |
 | `A2A.Server` | <xref:A2A.Diagnostics.A2ATelemetry.ServerMeterName> | server counters |
-| `A2A` | none | card, endpoint policy, idempotency, registry, circuit breaker and v0.3 compatibility counters (see [Metrics](#metrics)) |
+| `A2A` | none | card, endpoint policy, interface fallback, idempotency, registry, circuit breaker and v0.3 compatibility counters (see [Metrics](#metrics)) |
 
 A runnable version is in [samples/ObservedAgent](https://github.com/roman-ambinder/a2a/blob/main/samples/ObservedAgent/README.md). It keeps spans and metrics in memory instead of exporting them, and prints one trace from the client to the agent run.
 
@@ -105,7 +105,7 @@ Some names have no convention, so they stay: the span names `a2a.agent.execute` 
 
 ## Metrics
 
-All counters are `Counter<long>`, except the two up-down counters `a2a.server.executions.active` and `a2a.server.executions.queued` (`UpDownCounter<long>`).
+All counters are `Counter<long>`, except the two up-down counters `a2a.server.executions.active` and `a2a.server.executions.queued` (`UpDownCounter<long>`). The `a2a.server.artifact.bytes.*` counters have the unit `By`; the others have none.
 
 | Meter | Counter | Tags | Counts |
 |---|---|---|---|
@@ -130,6 +130,7 @@ All counters are `Counter<long>`, except the two up-down counters `a2a.server.ex
 | `A2A` | `a2a.card.changed` | `origin` | cards that differ from the pinned card of their origin |
 | `A2A` | `a2a.card.unsigned` | `origin` | unsigned cards accepted because signatures are not required |
 | `A2A` | `a2a.registry.name_lookalike` | `origin` | agent names that look like the name of another registered agent. See [Peer identity and registry](peer-identity.md) |
+| `A2A` | `a2a.client.interface.fallback` | `from`, `to` (the bindings, for example `JSONRPC` and `HTTP+JSON`) | calls moved to the next interface of the Agent Card because the one in use could not be reached. See [Client resilience](client-resilience.md) |
 | `A2A` | `a2a.client.circuit.state_changes` | `gen_ai.agent.name` (when known), `a2a.circuit.state` (`closed`, `open`, `half_open`) | circuit breaker state changes of a client. See [Client resilience](client-resilience.md) |
 | `A2A` | `a2a.compat.v0_3.dropped` | `field` (for example `part.filename`) | values dropped because v0.3 cannot carry them. See [v0.3 compatibility](v03-compatibility.md) |
 | `A2A` | `a2a.compat.v0_3.requests` | `binding`, `operation` | requests served on the v0.3 surface. See [v0.3 compatibility](v03-compatibility.md) |
@@ -138,7 +139,7 @@ A stream whose reader stops early counts as `canceled`. A cancellation that the 
 
 The push counters are also exposed as `PushDeliveryService.DeliveriesCounterName` and `PushDeliveryService.DeadLettersCounterName`. The idempotency counter is `InMemoryIdempotencyStore.EvictionsCounterName` on `InMemoryIdempotencyStore.MeterName`.
 
-The card counters come from the client's `A2ACardResolver`, so they exist in client processes. `a2a.registry.name_lookalike` comes from `AgentRegistry`, also on the client side. The v0.3 counters come from the v0.3 compatibility packages. The meter `A2A` therefore needs `AddMeter("A2A")` in any process that resolves cards, keeps an agent registry, serves or converts v0.3, runs the in-memory idempotency store, or uses a circuit breaker.
+The card counters come from the client's `A2ACardResolver`, so they exist in client processes. `a2a.registry.name_lookalike` comes from `AgentRegistry`, also on the client side. The v0.3 counters come from the v0.3 compatibility packages. The meter `A2A` therefore needs `AddMeter("A2A")` in any process that resolves cards, keeps an agent registry, serves or converts v0.3, runs the in-memory idempotency store, or uses interface fallback or a circuit breaker.
 
 ## Logs
 
@@ -150,15 +151,15 @@ The SDK logs through `ILogger` with fixed event ids. Use them in log filters and
 | 130-132 | client: client outbox |
 | 150-152 | client: agent registry (lookalike name, mixed-script name, identity change) |
 | 190 | client: OAuth2 provider with no scopes |
-| 200-244 | server: agent runs, coordination, push-config cleanup, retention, continuations, task budget; 228 is the shutdown drain giving up (agents still running at `ShutdownDrainTimeout`); 244 is a context lifecycle hook that failed |
-| 250-259 | server: startup diagnostics (250-253, 255, 257, 259). 254 (a task past its size cap) and 256 (a follow-up restarted for a retry) are not diagnostics |
+| 200-228, 230-238, 240-244 | server: agent runs, coordination, push-config cleanup, retention, continuations, task budget; 228 is the shutdown drain giving up (agents still running at `ShutdownDrainTimeout`); 244 is a context lifecycle hook that failed |
+| 250-257, 259 | server: startup diagnostics (250-253, 255, 257, 259). 254 (a task past its size cap) and 256 (a follow-up restarted for a retry) are not diagnostics |
 | 270-273 | server: audit trail (270 is the line of `LoggerAuditSink`, 271-273 are sink failures and dropped writes) |
 | 302-316 | server: push delivery |
 | 400-402 | server: idempotency |
 | 680-682 | server: inbound uploads (682 is a startup diagnostic) |
 | 690 | server: live input that its execution never took |
 | 500-501, 600 | ASP.NET Core: unhandled errors, stream errors |
-| 700-708, 800 | ASP.NET Core: startup validation (anonymous endpoints, a failed check that stops the app, card interfaces, plain HTTP, empty required card fields), card signing warning |
+| 700-709, 800 | ASP.NET Core: startup validation (anonymous endpoints, a failed check that stops the app, card interfaces, plain HTTP, empty required card fields, `TreatMissingVersionAsCurrent` outside Development), card signing warning |
 | 900 | gRPC: unhandled errors |
 | 1000-1001 | Postgres cleanup |
 | 1010-1011, 1020 | Postgres coordinator (cancel requests); Postgres schema newer than the package |
@@ -169,7 +170,7 @@ The SDK logs through `ILogger` with fixed event ids. Use them in log filters and
 | 1500-1504 | MCP bridge |
 | 1600-1603 | v0.3 compatibility: dropped fields, card conversion problems, v0.3 operations served, v0.3 agents called |
 | 1700 | v0.3 server surface: an error after the response started |
-| 1800-1801 | Agent Framework adapter: a session save after a failed or canceled run failed; a session delete for a deleted context failed |
+| 1800-1802 | Agent Framework adapter: a session save after a failed or canceled run failed; a session delete for a deleted context failed; the caller's session could not be recorded in the context's session index |
 
 ### Security events
 
@@ -212,6 +213,9 @@ The server logs once at startup when a setup works on one instance but breaks ac
 - 259 (Warning): agents are set up per tenant but the authorization handler is the default allow-all one. See [Multi-tenancy](multi-tenancy.md).
 - 682 (Warning): inbound uploads are on but the retention sweep is not registered.
 - 700 (Warning): endpoints allow anonymous callers.
+- 709 (Warning): `A2AServerOptions.TreatMissingVersionAsCurrent` is on outside Development, so a call without the `A2A-Version` header is served as 1.0, although the spec reads an empty version as 0.3.
+
+The ASP.NET Core startup validator also logs 701 (Critical: a failed check stops the app), 702-706 and 708 (Warning: Agent Card interfaces, plain HTTP, empty required card fields) and 707 (Debug: the card check could not run).
 
 Code 250 (Debug) means the checks were skipped because of a broken registration. See [Durable stores](durable-stores.md) and [Retention](retention.md).
 
