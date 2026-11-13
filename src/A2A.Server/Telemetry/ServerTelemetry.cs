@@ -13,7 +13,7 @@ namespace A2A.Server.Telemetry;
 /// </summary>
 /// <remarks>
 ///     Spans: one per operation (named after the method, by <see cref="TelemetryFilter" />), one per agent run
-///     (<see cref="A2ATelemetry.SpanNames.AgentExecution" />) and one per webhook delivery (
+///     (<see cref="A2ATelemetry.SpanNames.AgentExecution" />) and one per webhook delivery attempt (
 ///     <see cref="A2ATelemetry.SpanNames.PushDelivery" />).
 ///     Counters (<see cref="A2ATelemetry.Metrics" />): requests by operation and outcome, events stored, streams opened,
 ///     push
