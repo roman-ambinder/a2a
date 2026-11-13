@@ -172,7 +172,8 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
                 },
                 (taskId, cursor, generation, ct) => Resubscribe(request.Tenant, taskId, cursor, generation, options, ct),
                 (taskId, ct) => GetTaskForResume(request.Tenant, taskId, options, ct),
-                _options.TimeProvider, cancellationToken, _options.ReconcileGenerationGaps)))), request.Message);
+                _options.TimeProvider, cancellationToken, _options.ReconcileGenerationGaps)))), cancellationToken,
+            request.Message);
     }
 
     /// <inheritdoc />
@@ -220,7 +221,7 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
         RequireCapability(AgentCard?.Capabilities.Streaming, A2AErrorCode.UnsupportedOperation,
             "Agent does not declare streaming support.");
         return ClientTelemetry.TraceStream(A2AProtocol.Methods.SubscribeToTask, this, request.Tenant, request.Id,
-            Inspect(Checked(Guard(_transport.SubscribeToTaskAsync(request, options, cancellationToken)))));
+            Inspect(Checked(Guard(_transport.SubscribeToTaskAsync(request, options, cancellationToken)))), cancellationToken);
     }
 
     /// <inheritdoc />
@@ -618,7 +619,7 @@ public sealed class A2AClient : IA2AClient, IA2AExtensionOperationClient
                 ct => Resubscribe(tenant, taskId, null, null, options, ct),
                 (id, cursor, generation, ct) => Resubscribe(tenant, id, cursor, generation, options, ct),
                 (id, ct) => GetTaskForResume(tenant, id, options, ct),
-                _options.TimeProvider, cancellationToken, _options.ReconcileGenerationGaps)))));
+                _options.TimeProvider, cancellationToken, _options.ReconcileGenerationGaps)))), cancellationToken);
     }
 
     private IAsyncEnumerable<StreamFrame> Resubscribe(string? tenant, string taskId, string? lastEventId,

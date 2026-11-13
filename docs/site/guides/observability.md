@@ -80,6 +80,8 @@ A failed operation gets status `Error`, the `error.type` tag and, for A2A errors
 
 A run span is an error when the agent throws, when it hits <xref:A2A.Server.A2AServerOptions.MaxTaskDuration> (`error.type` is `TimeLimit`), when it goes past its usage budget (`error.type` is `BudgetExceeded`; see [Execution limits](execution-limits.md)), or when it leaves the task `FAILED` (`error.type` is `TaskFailed`). A cancellation the caller asked for sets `a2a.canceled` to `true` and is not an error.
 
+On the client, a cancellation the caller asked for is not an error either: the span gets `a2a.canceled` set to `true`. For a stream, that is a cancellation through the token passed to the method (`SendStreamingMessageAsync`, `SubscribeToTaskAsync`, `ObserveTaskAsync`) or through the enumerator's token (`WithCancellation`). A timeout from `A2ARequestOptions.Timeout` is an error.
+
 ## Health checks
 
 `services.AddHealthChecks().AddA2AHealthChecks()` adds four checks, all tagged `a2a`: `a2a_task_store` and `a2a_coordinator` each do one cheap read, `a2a_push_outbox` reports the age of the oldest due delivery and the dead letter count, and `a2a_shutdown` turns Unhealthy when `ApplicationStopping` fires, while running tasks drain. Everything except the push outbox check also has the `ready` tag, so one dead webhook does not take every instance out of the load balancer. The shutdown check cannot help for long: the server stops accepting connections soon after, so on Kubernetes still add a preStop delay if you want probes to see it.

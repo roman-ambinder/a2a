@@ -62,19 +62,21 @@ internal static class ClientTelemetry
     /// <summary>
     ///     Runs a stream in one span that covers the whole stream, reconnects included; each event is a span event. The span
     ///     is
-    ///     current while the source runs, never for the consumer.
+    ///     current while the source runs, never for the consumer. <paramref name="callerToken" /> is the token the caller
+    ///     passed to the method: a cancellation through it or through the enumerator's token (<c>WithCancellation</c>) is
+    ///     the caller's, not an error.
     /// </summary>
     public static IAsyncEnumerable<StreamResponse> TraceStream(string operation, A2AClient client, string? tenant,
-        string? taskId, IAsyncEnumerable<StreamResponse> source, Message? message = null)
+        string? taskId, IAsyncEnumerable<StreamResponse> source, CancellationToken callerToken, Message? message = null)
     {
         return Source.HasListeners()
-            ? TraceStreamCoreAsync(operation, client, tenant, taskId, source, message)
+            ? TraceStreamCoreAsync(operation, client, tenant, taskId, source, message, callerToken)
             : source;
     }
 
     private static async IAsyncEnumerable<StreamResponse> TraceStreamCoreAsync(string operation, A2AClient client,
         string? tenant, string? taskId,
-        IAsyncEnumerable<StreamResponse> source, Message? message,
+        IAsyncEnumerable<StreamResponse> source, Message? message, CancellationToken callerToken,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         var activity = Start(operation, client, tenant, taskId, message);
@@ -93,7 +95,8 @@ internal static class ClientTelemetry
                 }
                 catch (Exception ex)
                 {
-                    A2ATelemetry.RecordError(activity, ex, ct.IsCancellationRequested);
+                    A2ATelemetry.RecordError(activity, ex,
+                        ct.IsCancellationRequested || callerToken.IsCancellationRequested);
                     throw;
                 }
 
