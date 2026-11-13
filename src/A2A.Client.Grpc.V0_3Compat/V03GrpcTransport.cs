@@ -1,9 +1,11 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using A2A.Client.Grpc;
 using A2A.Client.Resilience;
 using A2A.Client.V0_3Compat;
+using A2A.Diagnostics;
 using A2A.V0_3Compat;
 using Google.Protobuf;
 using Grpc.Core;
@@ -208,8 +210,9 @@ internal sealed class V03GrpcTransport : IA2ATransport
     }
 
     /// <summary>
-    ///     Metadata in the order of the HTTP transports: <c>a2a-version</c> 0.3, <c>x-a2a-extensions</c>, then
-    ///     <see cref="A2ARequestOptions.Headers" />.
+    ///     Metadata in the order of the HTTP transports: <c>a2a-version</c> 0.3, <c>x-a2a-extensions</c>, the W3C
+    ///     <c>traceparent</c>/<c>tracestate</c> of the current activity, then <see cref="A2ARequestOptions.Headers" />
+    ///     (replacing an SDK entry of the same name).
     /// </summary>
     private CallOptions CallOptions(A2ARequestOptions? options, DateTime? deadline, CancellationToken ct)
     {
@@ -222,10 +225,19 @@ internal sealed class V03GrpcTransport : IA2ATransport
             : _options.Extensions;
         var joined = string.Join(",", extensions);
         if (joined.Length > 0) headers.Add(V03Compat.ExtensionsHeader.ToLowerInvariant(), joined);
+        A2ATelemetry.InjectTraceContext(Activity.Current, (name, value) => Set(headers, name, value));
         if (options is not null)
             foreach (var (name, value) in options.Headers)
-                headers.Add(name.ToLowerInvariant(), value);
+                Set(headers, name.ToLowerInvariant(), value);
         return new CallOptions(headers, deadline, ct);
+    }
+
+    private static void Set(Metadata headers, string key, string value)
+    {
+        for (var i = headers.Count - 1; i >= 0; i--)
+            if (string.Equals(headers[i].Key, key, StringComparison.Ordinal))
+                headers.RemoveAt(i);
+        headers.Add(key, value);
     }
 
     private static Exception Translate(RpcException ex, TimeSpan timeout, CancellationToken ct)

@@ -39,7 +39,7 @@ The delivery span continues the trace of the agent run that produced the event. 
 
 ## Propagation
 
-- The client transports send the current span as W3C `traceparent` and `tracestate` on JSON-RPC, HTTP+JSON and gRPC (as metadata).
+- The client transports send the current span as W3C `traceparent` and `tracestate` on JSON-RPC, HTTP+JSON and gRPC (as metadata), the v0.3 transports included.
 - The server reads both headers on all three bindings into `ServerCallContext.TraceParent`. Client and server spans then share one trace.
 - A webhook POST carries the `traceparent` of its delivery span.
 - A `traceparent` you set in `A2ARequestOptions.Headers` replaces the one the SDK wrote.
@@ -82,6 +82,8 @@ A failed operation gets status `Error`, the `error.type` tag and, for A2A errors
 A run span is an error when the agent throws, when it hits <xref:A2A.Server.A2AServerOptions.MaxTaskDuration> (`error.type` is `TimeLimit`), when it goes past its usage budget (`error.type` is `BudgetExceeded`; see [Execution limits](execution-limits.md)), or when it leaves the task `FAILED` (`error.type` is `TaskFailed`). A cancellation the caller asked for sets `a2a.canceled` to `true` and is not an error. A run that the host's shutdown stopped sets `a2a.interrupted` instead, and is not an error either.
 
 An upload span (`a2a.artifact.upload`) whose write fails follows the same rules: status `Error` and `error.type`. An upload the caller canceled sets `a2a.canceled` to `true` and is not an error.
+
+On the client, a cancellation the caller asked for is not an error either: the span gets `a2a.canceled` set to `true`. For a stream, that is a cancellation through the token passed to the method (`SendStreamingMessageAsync`, `SubscribeToTaskAsync`, `ObserveTaskAsync`) or through the enumerator's token (`WithCancellation`). A timeout from `A2ARequestOptions.Timeout` is an error.
 
 ## Health checks
 

@@ -561,6 +561,59 @@ public sealed class TelemetryTests
         Assert.Equal(ActivityStatusCode.Error, send.Status);
     }
 
+    public static TheoryData<string, bool> StreamingClientMethods() => new()
+    {
+        { "send", true }, { "send", false },
+        { "subscribe", true }, { "subscribe", false },
+        { "observe", true }, { "observe", false },
+    };
+
+    /// <summary>
+    /// A caller's cancellation of a client stream is <c>a2a.canceled</c>, not an error, whether the token goes to the method
+    /// (<paramref name="methodToken"/>) or to the enumerator (<c>WithCancellation</c>).
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(StreamingClientMethods))]
+    public async Task Client_stream_caller_cancellation_is_canceled(string method, bool methodToken)
+    {
+        await using var host = await TestAgentHost.StartAsync();
+        var client = host.Client(ProtocolBindings.JsonRpc);
+        var text = $"gate {Guid.NewGuid():N}";
+        var gate = ScenarioAgent.Gate(text);
+        try
+        {
+            string? taskId = null;
+            if (method != "send")
+                taskId = (await client.SendMessageAsync(Message.FromUser(text), new SendMessageConfiguration { ReturnImmediately = true })).RequireTask().Id;
+
+            using var spans = new Spans(A2ATelemetry.ClientSourceName);
+            using var caller = new CancellationTokenSource(Timeout);
+            var methodCt = methodToken ? caller.Token : CancellationToken.None;
+            var stream = method switch
+            {
+                "send" => client.SendStreamingMessageAsync(Message.FromUser(text), cancellationToken: methodCt),
+                "subscribe" => client.SubscribeToTaskAsync(taskId!, cancellationToken: methodCt),
+                _ => client.ObserveTaskAsync(taskId!, cancellationToken: methodCt),
+            };
+            var enumeratorCt = methodToken ? CancellationToken.None : caller.Token;
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            {
+                await foreach (var _ in stream.WithCancellation(enumeratorCt)) await caller.CancelAsync();
+            });
+
+            var operation = method == "send" ? "SendStreamingMessage" : "SubscribeToTask";
+            var span = Assert.Single(spans.Named(operation));
+            Assert.Equal(true, span.GetTagItem(A2ATelemetry.ErrorTypeCanceledTag));
+            Assert.Null(span.GetTagItem(A2ATelemetry.Tags.ErrorType));
+            Assert.NotEqual(ActivityStatusCode.Error, span.Status);
+        }
+        finally
+        {
+            gate.TrySetResult();
+        }
+    }
+
     // ---------------------------------------------------------------- convention attributes
 
     private static Activity SampledActivity() => new("test") { IsAllDataRequested = true };
