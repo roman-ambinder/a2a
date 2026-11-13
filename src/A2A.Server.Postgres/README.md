@@ -65,6 +65,8 @@ when it is off.
 | `a2a_sweep_leases`      | `name`                                     | Named cluster-wide leases of periodic jobs (the retention sweep).                                                                                                |
 | `a2a_audit_log`         | `seq`                                      | The audit trail, one row per event (ids, action, outcome, actor, tenant, reason; never content). Indexes on tenant and time, task, and actor.                    |
 | `a2a_cancel_requests`   | `id`                                       | Cancel requests between instances, with the sender's origin id. Old rows are deleted by the next request.                                                        |
+| `a2a_artifact_parts`    | `(tenant, task_id, artifact_id, ordinal)`  | With `ArtifactRows`: the parts of a task's artifacts, one row per append (`parts_layout = 1` on the task). Deleted with the task.                                |
+| `a2a_task_entries`      | `(tenant, task_id, list, ordinal)`         | With `HistoryRows`: a task's history messages (`list` 0) and timeline entries (`list` 1), one per row (`entries_layout = 1` on the task). Deleted with the task. |
 
 Times are UTC ticks (`bigint`), JSON is `text`, and keys use the `"C"` collation, so values round-trip exactly and sort
 like the in-memory stores.

@@ -134,7 +134,7 @@ Today 4,000 status messages cost about 150 MB of short-lived allocation and 0.18
 - **Harder:** `AgentTask` and `Artifact` get internal state that tests must cover. The cases are a concurrent first read, a fork from an old version, a set after a read, and JSON round-trips on both targets.
 - **To revisit:**
   - Option A before 1.0.
-  - History and timeline rows for Postgres (the same idea as ADR-003 option C), if status-heavy tasks show up in WAL.
+  - History and timeline rows for Postgres (the same idea as ADR-003 option C), if status-heavy tasks show up in WAL. Proposed in [ADR-005](0005-history-and-timeline-rows.md), behind `PostgresStoreOptions.HistoryRows`.
   - The paths that still read the getters and so build the lists (see the follow-up): the gRPC `DirectMapper` (stream
     events and send responses that carry a task), the v0.3 codec, and the server code that shapes a task for a response.
     Each would need a public, additive way to read a list without building it, because the packages do not share

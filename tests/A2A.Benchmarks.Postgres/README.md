@@ -22,6 +22,18 @@ bytes, and the client sends one blocking SendMessage. It prints a Markdown table
 "Batch commits off" wraps the same `PostgresTaskStore` without `IBatchTaskCommit`, so every event is its own commit.
 Each case uses a fresh schema, which is dropped afterwards.
 
+## Status-heavy tasks: WAL and memory
+
+    dotnet run -c Release --project tests/A2A.Benchmarks.Postgres -- status
+
+For ADR-005 (`docs/adr/0005-history-and-timeline-rows.md`). The agent sends N status updates, each with a message of B
+random letters (or none: "bare"), then completes. Status updates are never batched, so each one is its own commit. The
+table shows the commits, the wall time, the WAL written, and the bytes the process allocated, in total and per update,
+with `HistoryRows` on and off. With it off, each commit rewrites the whole history and timeline, so the WAL per update
+grows with the task. With it on, a status update inserts its message and its timeline entry, so the WAL per update stays
+flat. The run checks that the stored task has every message (the response returns only the newest
+`MaxHistoryLengthReturned`, so it reads the store).
+
 ## Paced appends: memory
 
     dotnet run -c Release --project tests/A2A.Benchmarks.Postgres -- paced
