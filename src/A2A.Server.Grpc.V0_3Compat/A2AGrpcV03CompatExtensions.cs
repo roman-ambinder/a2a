@@ -60,6 +60,13 @@ public static class A2AGrpcV03CompatExtensions
         var builder = endpoints.MapGrpcService<V03GrpcService>();
         // "A2A gRPC /a2a.v1.A2AService/SendMessage": the startup check and the rate limit rejection writer match the prefix.
         builder.Add(e => e.DisplayName = (e.DisplayName ?? "").Replace("gRPC - ", "", StringComparison.Ordinal));
+        // A call the authorization middleware refuses is recorded under the v1.0 name of its operation, as the pipeline
+        // counts the converted call.
+        builder.Add(e =>
+        {
+            if (e.Metadata.OfType<GrpcMethodMetadata>().FirstOrDefault() is { } method)
+                e.Metadata.Add(new A2AOperationMetadata(ProtocolBindings.Grpc, V03Surface.OperationOf(method.Method.Name)));
+        });
         builder.WithA2AStartupCheck(endpoints, "gRPC");
         return builder;
     }

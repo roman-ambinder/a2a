@@ -227,7 +227,7 @@ internal sealed class V03GrpcService : V03Pb.A2AService.A2AServiceBase
         }
         catch (Exception ex) when (ex is not RpcException)
         {
-            throw await FailAsync(ex, context, call).ConfigureAwait(false);
+            throw await FailAsync(ex, context, call, operation).ConfigureAwait(false);
         }
     }
 
@@ -252,7 +252,7 @@ internal sealed class V03GrpcService : V03Pb.A2AService.A2AServiceBase
         }
         catch (Exception ex) when (ex is not RpcException)
         {
-            throw await FailAsync(ex, context, call).ConfigureAwait(false);
+            throw await FailAsync(ex, context, call, operation).ConfigureAwait(false);
         }
     }
 
@@ -286,10 +286,17 @@ internal sealed class V03GrpcService : V03Pb.A2AService.A2AServiceBase
     ///     a wait (a rate limit, a full input buffer) carries it in a <c>retry-after</c> trailer, in whole seconds. The v0.3
     ///     proto has no error details for either.
     /// </summary>
-    private async Task<RpcException> FailAsync(Exception ex, GrpcContext context, A2ACall? call)
+    private async Task<RpcException> FailAsync(Exception ex, GrpcContext context, A2ACall? call, string operation)
     {
+        // A call the pipeline saw is traced and counted there already: this records only one refused before it, under
+        // the v1.0 name of its operation (as the pipeline counts it).
+        var name = V03Surface.OperationOf(operation);
         if (ex is OperationCanceledException && context.CancellationToken.IsCancellationRequested)
+        {
+            RefusedCalls.Record(_handler, context.GetHttpContext(), call, Binding, name, ex);
             return new RpcException(new Status(StatusCode.Cancelled, "Call canceled by the client"));
+        }
+
         if (call is not null) WriteExtensions(context, call);
         var a2a = ex switch
         {
@@ -297,6 +304,7 @@ internal sealed class V03GrpcService : V03Pb.A2AService.A2AServiceBase
             InvalidProtocolBufferException proto => A2AException.InvalidParams($"Invalid message: {proto.Message}"),
             _ => HttpPlumbing.Normalize(ex, _logger, _includeDetails)
         };
+        RefusedCalls.Record(_handler, context.GetHttpContext(), call, Binding, name, a2a);
         if (a2a.Code == A2AErrorCode.Unauthenticated)
         {
             var challengeCall = call ?? A2ACall.Anonymous();

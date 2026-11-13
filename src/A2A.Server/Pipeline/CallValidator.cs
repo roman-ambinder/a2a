@@ -33,6 +33,7 @@ public sealed class CallValidator(A2AServerOptions options, IAgentCardProvider c
         if (!options.AllowAnonymous && !call.IsAuthenticated)
         {
             SecurityEventLog.Record(options, A2ATelemetry.SecurityEventNames.Unauthenticated, null, call, null);
+            call.SecurityEventRecorded = true;
             throw new A2AException(A2AErrorCode.Unauthenticated);
         }
 

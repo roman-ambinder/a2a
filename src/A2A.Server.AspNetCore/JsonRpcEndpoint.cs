@@ -56,10 +56,13 @@ public sealed class JsonRpcEndpoint(
         }
         catch (Exception ex)
         {
-            await WriteFailureAsync(http, ServerCallContext.Anonymous(), id,
-                HttpPlumbing.Normalize(ex, logger, _includeDetails)).ConfigureAwait(false);
+            var error = HttpPlumbing.Normalize(ex, logger, _includeDetails);
+            RefusedCalls.Record(handler, http, null, ProtocolBindings.JsonRpc, null, error);
+            await WriteFailureAsync(http, ServerCallContext.Anonymous(), id, error).ConfigureAwait(false);
             return;
         }
+
+        string? operationName = null; // for a call refused before the pipeline: a method the table serves, else none
 
         try
         {
@@ -97,6 +100,11 @@ public sealed class JsonRpcEndpoint(
                     idv.ValueKind is not (JsonValueKind.String or JsonValueKind.Number or JsonValueKind.Null))
                     throw new A2AException(A2AErrorCode.InvalidRequest, "id must be a string, number, or null");
 
+                operationName = method == A2AProtocol.Methods.SendLiveMessage
+                    ? method
+                    : table.JsonRpcMethods.TryGetValue(method, out var named)
+                        ? named.Name
+                        : null;
                 handler.ValidateCall(call);
 
                 // A2A 1.1: SendLiveMessage is a method of 1.1 only; each of its requests is authorized as the operation it runs.
@@ -233,20 +241,24 @@ public sealed class JsonRpcEndpoint(
                     throw new A2AException(A2AErrorCode.MethodNotFound, $"Method '{operation.Name}' not found");
             }
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (ct.IsCancellationRequested)
         {
             // client disconnected
+            handler.RecordRefusedCall(call, operationName, ex);
         }
         catch (Exception ex)
         {
             if (http.Response.HasStarted)
             {
                 AspNetCoreLog.ErrorAfterResponseStarted(logger, ex);
+                handler.RecordRefusedCall(call, operationName, ex);
                 return;
             }
 
-            await WriteFailureAsync(http, call, id, HttpPlumbing.Normalize(ex, logger, _includeDetails))
-                .ConfigureAwait(false);
+            var error = HttpPlumbing.Normalize(ex, logger, _includeDetails);
+            // A call the pipeline saw is traced and counted there already: this records only one refused before it.
+            handler.RecordRefusedCall(call, operationName, error);
+            await WriteFailureAsync(http, call, id, error).ConfigureAwait(false);
         }
     }
 

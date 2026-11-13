@@ -27,6 +27,35 @@ public interface IA2ARequestHandler
     void ValidateCall(ServerCallContext call);
 
     /// <summary>
+    ///     Records a call that failed before it reached an operation, so it is traced, counted and logged like the calls the
+    ///     operations refuse: refused by <see cref="ValidateCall" />, by the host's authentication or authorization (for
+    ///     example ASP.NET Core's authorization middleware), or by the binding itself (a body that does not parse, an unknown
+    ///     method). Bindings call it on every failure before the response is written; it does nothing for a call that reached
+    ///     an operation, which traced and counted it already, and it records a call once. The default implementation does
+    ///     nothing.
+    /// </summary>
+    /// <remarks>
+    ///     <see cref="A2ARequestHandler" /> records one operation span with the error, one <c>a2a.server.requests</c> count
+    ///     with outcome <c>error</c> (<c>canceled</c> for an <see cref="OperationCanceledException" />), and for
+    ///     <see cref="A2AErrorCode.Unauthenticated" /> or <see cref="A2AErrorCode.PermissionDenied" /> one security event
+    ///     (<c>unauthenticated</c> or <c>permission_denied</c>) unless <see cref="ValidateCall" /> recorded it already.
+    /// </remarks>
+    /// <param name="call">
+    ///     The call. When the binding could not build one, a context with what it knows (at least
+    ///     <see cref="ServerCallContext.Binding" />, and <see cref="ServerCallContext.TraceParent" /> when the request carried
+    ///     one).
+    /// </param>
+    /// <param name="operation">
+    ///     The operation name (for example <c>GetTask</c>) when the binding knows it without reading caller input it has
+    ///     not checked; null when it does not, recorded as <c>_OTHER</c>. Never pass a name the caller chose that is not an
+    ///     operation the server serves: it becomes a metric tag.
+    /// </param>
+    /// <param name="error">The failure the caller gets.</param>
+    void RecordRefusedCall(ServerCallContext call, string? operation, Exception error)
+    {
+    }
+
+    /// <summary>
     ///     SendMessage (spec §3.1.1). Unless <see cref="SendMessageConfiguration.ReturnImmediately" /> is set, waits until the
     ///     task is terminal or interrupted, or until no execution of the task is running any more.
     /// </summary>

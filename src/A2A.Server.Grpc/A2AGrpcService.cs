@@ -47,7 +47,7 @@ public sealed class A2AGrpcService : A2aPb.A2AService.A2AServiceBase
     {
         _handler = handler;
         _maxDepth = serverOptions.Value.Limits.MaxJsonDepth;
-        _support = new GrpcCallSupport(logger, GrpcCallSupport.ShouldIncludeDetails(serverOptions, environment));
+        _support = new GrpcCallSupport(logger, GrpcCallSupport.ShouldIncludeDetails(serverOptions, environment), handler);
     }
 
     /// <summary>SendMessage (spec §3.1.1) over gRPC.</summary>
@@ -211,7 +211,8 @@ public sealed class A2AGrpcService : A2aPb.A2AService.A2AServiceBase
         }
         catch (Exception ex) when (ex is not RpcException)
         {
-            throw await _support.FailAsync(ex, context, call, false).ConfigureAwait(false);
+            throw await _support.FailAsync(ex, context, call, false, GrpcCallSupport.OperationOf(context))
+                .ConfigureAwait(false);
         }
     }
 
@@ -267,7 +268,8 @@ public sealed class A2AGrpcService : A2aPb.A2AService.A2AServiceBase
         {
             // gRPC carries the status in trailers, so errors after the first message still reach the client cleanly.
             // A stream that sent its first event already echoed the extensions in the initial metadata.
-            throw await _support.FailAsync(ex, context, call, headersSent).ConfigureAwait(false);
+            throw await _support.FailAsync(ex, context, call, headersSent, GrpcCallSupport.OperationOf(context))
+                .ConfigureAwait(false);
         }
     }
 }

@@ -304,9 +304,12 @@ public static partial class A2AEndpointRouteBuilderExtensions
         var rpc = ActivatorUtilities.CreateInstance<JsonRpcEndpoint>(endpoints.ServiceProvider);
         RequestDelegate handle = rpc.HandleAsync;
         if (adapter is not null) handle = adapter.WrapJsonRpc(endpoints.ServiceProvider, handle);
-        group.MapPost("", handle).WithDisplayName(JsonRpcEndpoint.DisplayName);
+        // The method is in the body: a call refused before it is read has no operation name.
+        var metadata = new A2AOperationMetadata(ProtocolBindings.JsonRpc, null);
+        group.MapPost("", handle).WithDisplayName(JsonRpcEndpoint.DisplayName).WithMetadata(metadata);
         if (!tenantInPattern)
-            group.MapPost("/{tenant}", handle).WithDisplayName(JsonRpcEndpoint.DisplayName + " (tenant)");
+            group.MapPost("/{tenant}", handle).WithDisplayName(JsonRpcEndpoint.DisplayName + " (tenant)")
+                .WithMetadata(metadata);
     }
 
     /// <summary>

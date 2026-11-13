@@ -43,3 +43,5 @@ A2A.Server.Push.PushNotificationOptions.PinProxyTarget.get -> bool
 A2A.Server.Push.PushNotificationOptions.PinProxyTarget.set -> void
 A2A.Server.A2ALimits.MaxTimelineEntries.get -> int
 A2A.Server.A2ALimits.MaxTimelineEntries.set -> void
+A2A.Server.A2ARequestHandler.RecordRefusedCall(A2A.Server.ServerCallContext! call, string? operation, System.Exception! error) -> void
+A2A.Server.IA2ARequestHandler.RecordRefusedCall(A2A.Server.ServerCallContext! call, string? operation, System.Exception! error) -> void
