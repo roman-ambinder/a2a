@@ -188,42 +188,13 @@ internal sealed class ItkAgent(HttpClient http, ILogger<ItkAgent> logger) : IAge
     {
         var binding = Binding(call.Transport);
         var options = new A2AClientOptions { SupportedBindings = [binding] };
-        if (binding == ProtocolBindings.Grpc) options.UseGrpc().UseGrpcV03();
+        // ITK agents list cleartext gRPC as a bare host:port, which this SDK reads as TLS unless told otherwise.
+        if (binding == ProtocolBindings.Grpc)
+            options.UseGrpc(null, useTlsForSchemeLessAddresses: false).UseGrpcV03(null, useTlsForSchemeLessAddresses: false);
 
         var uri = new Uri(call.AgentCardUri.EndsWith('/') ? call.AgentCardUri : call.AgentCardUri + "/");
         logger.LogInformation("Calling {Uri} over {Binding}", uri, binding);
-        var client = await V03CompatClientFactory.CreateAsync(uri, http, options, cancellationToken: cancellationToken);
-
-        // ITK peers list plaintext gRPC as a bare host:port (the proto comment's form), which this SDK reads as TLS.
-        // Every ITK agent runs on loopback without TLS, so call such an address over plain HTTP/2.
-        if (binding == ProtocolBindings.Grpc && client.AgentCard is { } card &&
-            PlaintextLoopbackGrpc(card) is { } patched)
-            client = V03CompatClientFactory.Create(patched, http, options);
-        return client;
-    }
-
-    /// <summary>
-    ///     A copy of <paramref name="card" /> whose scheme-less loopback gRPC addresses have <c>http://</c>, or null when
-    ///     it has none.
-    /// </summary>
-    internal static AgentCard? PlaintextLoopbackGrpc(AgentCard card)
-    {
-        var changed = false;
-        var interfaces = card.SupportedInterfaces.Select(i =>
-        {
-            if (i.ProtocolBinding != ProtocolBindings.Grpc || i.Url.Contains("://", StringComparison.Ordinal) ||
-                !Uri.TryCreate("http://" + i.Url, UriKind.Absolute, out var u) || !u.IsLoopback) return i;
-            changed = true;
-            return new AgentInterface
-            {
-                Url = "http://" + i.Url, ProtocolBinding = i.ProtocolBinding, ProtocolVersion = i.ProtocolVersion,
-                Tenant = i.Tenant
-            };
-        }).ToList();
-        if (!changed) return null;
-        var copy = A2A.Json.A2AJson.Deserialize<AgentCard>(A2A.Json.A2AJson.Serialize(card))!;
-        copy.SupportedInterfaces = interfaces;
-        return copy;
+        return await V03CompatClientFactory.CreateAsync(uri, http, options, cancellationToken: cancellationToken);
     }
 
     /// <summary>

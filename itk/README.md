@@ -30,12 +30,22 @@ itk/run_itk.sh
 ITK_NIGHTLY_RUN=TRUE itk/run_itk.sh   # every peer in the matrix, one pair at a time
 ```
 
+The run leaves its results in `itk/raw_results.json`. To print them and get a non-zero exit code unless every
+scenario passed (the nightly path of the driver exits 0 even when scenarios fail):
+
+```bash
+python3 itk/check_results.py
+```
+
+CI runs the PR set on every pull request (job `itk` in `ci.yml`) and the nightly set every night
+(`.github/workflows/itk-nightly.yml`).
+
 The a2a-itk revision is pinned in `run_itk.sh` (`A2A_ITK_REVISION`). The script stops when `Proto/instruction.proto` no
 longer matches that revision's copy. Combinations that are known to fail are recorded in a2a-itk's
 `known_failures.yaml` under `sut_sdk: dotnet`, the matrix key this SDK runs under.
 
-## Known differences from other ITK agents
+## Plaintext gRPC addresses
 
-- **Plaintext gRPC addresses.** ITK agents list cleartext gRPC as a bare `host:port`, which this SDK's client reads as
-  TLS (`GrpcTransport.ParseAddress`). For a gRPC hop the agent calls a bare loopback address over plain HTTP/2 instead
-  (`ItkAgent.PlaintextLoopbackGrpc`). Its own card uses the same bare form, as the other agents expect.
+ITK agents list cleartext gRPC as a bare `host:port`, which this SDK's client reads as TLS by default. The agent calls
+gRPC peers with `UseGrpc(null, useTlsForSchemeLessAddresses: false)` (and the same for `UseGrpcV03`), so a bare address
+is called over cleartext HTTP/2. Its own card uses the same bare form, as the other agents expect.

@@ -264,7 +264,8 @@ internal sealed class V03GrpcTransport : IA2ATransport
 }
 
 /// <summary>Creates v0.3 gRPC transports for the v0.3 GRPC interfaces of a card. Added by <see cref="A2AGrpcV03ClientOptionsExtensions.UseGrpcV03" />.</summary>
-internal sealed class V03GrpcTransportFactory(GrpcChannelOptions? channelOptions) : IV03TransportFactory
+internal sealed class V03GrpcTransportFactory(GrpcChannelOptions? channelOptions, bool useTlsForSchemeLessAddresses = true)
+    : IV03TransportFactory
 {
     // The channel pool of the v1.0 gRPC transport (GrpcChannelPool): one channel per address and channel options, leased
     // per call, and disposed when no call uses it after an idle timeout or past an idle limit.
@@ -277,7 +278,7 @@ internal sealed class V03GrpcTransportFactory(GrpcChannelOptions? channelOptions
             return false;
         try
         {
-            _ = GrpcTransport.ParseAddress(agentInterface.Url);
+            _ = GrpcTransport.ParseAddress(agentInterface.Url, useTlsForSchemeLessAddresses);
             return true;
         }
         catch (UriFormatException)
@@ -289,7 +290,8 @@ internal sealed class V03GrpcTransportFactory(GrpcChannelOptions? channelOptions
     public IA2ATransport Create(AgentInterface agentInterface, HttpClient httpClient, A2AClientOptions options)
     {
         return new V03GrpcTransport(
-            GrpcChannelPool.For(channelOptions).CallInvoker(GrpcTransport.ParseAddress(agentInterface.Url)), options);
+            GrpcChannelPool.For(channelOptions)
+                .CallInvoker(GrpcTransport.ParseAddress(agentInterface.Url, useTlsForSchemeLessAddresses)), options);
     }
 }
 
@@ -304,14 +306,20 @@ public static class A2AGrpcV03ClientOptionsExtensions
     /// </summary>
     /// <param name="options">The client options. Changed and returned.</param>
     /// <param name="channelOptions">Options of the gRPC channels (one per address), for example an HTTP handler.</param>
+    /// <param name="useTlsForSchemeLessAddresses">
+    ///     False calls a card's "host:port" gRPC address (no scheme) over cleartext HTTP/2 instead of HTTPS, as
+    ///     <c>UseGrpc(channelOptions, false)</c> does for v1.0. Only for agents you know serve cleartext gRPC: the call and its
+    ///     credentials are not encrypted.
+    /// </param>
     /// <returns><paramref name="options" />.</returns>
-    public static A2AClientOptions UseGrpcV03(this A2AClientOptions options, GrpcChannelOptions? channelOptions = null)
+    public static A2AClientOptions UseGrpcV03(this A2AClientOptions options, GrpcChannelOptions? channelOptions = null,
+        bool useTlsForSchemeLessAddresses = true)
     {
         ArgumentNullException.ThrowIfNull(options);
         V03Compat.RequireSameVersion(typeof(A2AGrpcV03ClientOptionsExtensions).Assembly,
             typeof(V03CompatClientFactory).Assembly, typeof(A2AClient).Assembly, typeof(V03Compat).Assembly,
             typeof(AgentCard).Assembly);
-        options.TransportFactories.Add(new V03GrpcTransportFactory(channelOptions));
+        options.TransportFactories.Add(new V03GrpcTransportFactory(channelOptions, useTlsForSchemeLessAddresses));
         if (!options.SupportedBindings.Contains(ProtocolBindings.Grpc))
             options.SupportedBindings.Add(ProtocolBindings.Grpc);
         return options;

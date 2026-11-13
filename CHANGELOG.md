@@ -117,9 +117,16 @@ One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpl
   card, which says `pushNotifications: false` when its push is v1-only, so this client refused to send it a push
   config ("Push notifications are not supported"). Found by the ITK run. A v0.3-only server ignores the header, and
   this SDK's card endpoint serves the same card either way.
+- **Cleartext gRPC at a bare `host:port`.** The client reads a card's gRPC address without a scheme as TLS, as the proto
+  comment says, but some SDKs and every a2a-itk agent list cleartext gRPC that way, so this client could not reach
+  them over gRPC. New `UseGrpc(channelOptions, useTlsForSchemeLessAddresses)` overload, `GrpcTransportFactory`
+  constructor and `GrpcTransport.ParseAddress(url, useTlsForSchemeLessAddresses)`; `UseGrpcV03` takes the same optional
+  parameter. The default stays TLS, and an explicit `https://` or `http://` is always used as it is. The ITK agent
+  uses it instead of its loopback-only workaround.
 - **ITK cross-SDK suite.** New `itk/` agent and `itk/run_itk.sh` for [a2a-itk](https://github.com/a2aproject/a2a-itk)'s
   traversal suite, which checks this SDK against the Python, Go, TypeScript, Java, Rust and official .NET SDKs. A new
-  CI job `itk` runs the PR set; it is not part of `all-green` yet.
+  CI job `itk` runs the PR set; it is not part of `all-green` yet. A nightly workflow (`itk-nightly.yml`) runs the nightly set against every peer in the matrix,
+  and `itk/check_results.py` fails it on any failed scenario, since the driver's nightly path exits 0.
 - Fixes from the review of the compatibility changes (roman-ambinder/a2a#159):
   - **v0.3 HTTP+JSON client.** `ListTasksAsync` returns a next page token when `pageSize` cuts the list, so paging on
     reaches every task. Before, the tasks past the first page were lost.
