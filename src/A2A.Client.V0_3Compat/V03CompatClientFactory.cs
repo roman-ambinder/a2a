@@ -93,7 +93,7 @@ public static class V03CompatClientFactory
 
         var selected = SelectV03Interface(card, options)
                        ?? throw new A2AException(A2AErrorCode.UnsupportedOperation,
-                           $"No supported interface in Agent Card '{card.Name}'. The client supports v1.x and v0.3 over {string.Join(", ", options.SupportedBindings.Where(b => b is ProtocolBindings.JsonRpc or ProtocolBindings.HttpJson))}.");
+                           $"No supported interface in Agent Card '{card.Name}'. The client supports v1.x and v0.3 over {string.Join(", ", options.SupportedBindings.Where(b => b is ProtocolBindings.JsonRpc or ProtocolBindings.HttpJson || options.TransportFactories.OfType<IV03TransportFactory>().Any(f => string.Equals(f.ProtocolBinding, b, StringComparison.OrdinalIgnoreCase))))}.");
 
         V03LossReporter.LegacyAgent(card.Name, selected.Url);
         var v03Options = V03ClientSupport.CopyForV03(options, selected.Tenant);

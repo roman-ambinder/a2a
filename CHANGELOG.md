@@ -107,6 +107,14 @@ One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpl
   message. The `ErrorInfo` reason, `retryable`, `retryAfter` and `RetryInfo` always stay, and
   `ErrorInfo.metadata.truncated` is `"true"` when something was left out. Before, a custom operation that threw an
   `A2AException` with large metadata sent it all, about 56 KB in the test. The HTTP bindings are unchanged.
+- **`UseGrpc().UseGrpcV03()` no longer hides v1.0 gRPC.** The client asked only the last transport factory registered
+  for a binding whether it could serve an interface. With the v0.3 gRPC factory registered after the v1.0 one, a
+  v1.0 gRPC interface was never selected, and `V03CompatClientFactory` failed with "No supported interface". Now the
+  last factory for the binding that can create the interface is used, so the two calls work in either order. The
+  error message of `V03CompatClientFactory` also lists gRPC when a v0.3 gRPC transport is registered.
+- **ITK cross-SDK suite.** New `itk/` agent and `itk/run_itk.sh` for [a2a-itk](https://github.com/a2aproject/a2a-itk)'s
+  traversal suite, which checks this SDK against the Python, Go, TypeScript, Java, Rust and official .NET SDKs. A new
+  CI job `itk` runs the PR set; it is not part of `all-green` yet.
 - Fixes from the review of the compatibility changes (roman-ambinder/a2a#159):
   - **v0.3 HTTP+JSON client.** `ListTasksAsync` returns a next page token when `pageSize` cuts the list, so paging on
     reaches every task. Before, the tasks past the first page were lost.

@@ -284,6 +284,31 @@ public class GrpcCompatTests
         Assert.Equal(A2AErrorCode.UnsupportedOperation, ex.Code);
     }
 
+    // UseGrpcV03 registered after UseGrpc used to hide the v1.0 gRPC factory: the last factory for GRPC was asked alone,
+    // and the v0.3 one refuses a v1.0 interface.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void UseGrpc_and_UseGrpcV03_in_either_order_select_each_versions_grpc_interface(bool v1First)
+    {
+        A2AClientOptions Options()
+        {
+            var o = new A2AClientOptions { SupportedBindings = [ProtocolBindings.Grpc] };
+            return v1First
+                ? A2A.Client.Grpc.A2AGrpcClientOptionsExtensions.UseGrpc(o).UseGrpcV03()
+                : A2A.Client.Grpc.A2AGrpcClientOptionsExtensions.UseGrpc(o.UseGrpcV03());
+        }
+
+        var v1 = V03Host.DefaultCard();
+        v1.SupportedInterfaces = [new AgentInterface { Url = "http://localhost:1/", ProtocolBinding = ProtocolBindings.Grpc, ProtocolVersion = "1.0" }];
+        Assert.Equal("http://localhost:1/", A2AClientFactory.SelectInterface(v1, Options())?.Url);
+        Assert.NotNull(V03CompatClientFactory.Create(v1, new HttpClient(), Options()));
+
+        var v03 = V03Host.DefaultCard();
+        v03.SupportedInterfaces = [new AgentInterface { Url = "http://localhost:2/", ProtocolBinding = ProtocolBindings.Grpc, ProtocolVersion = "0.3" }];
+        Assert.NotNull(V03CompatClientFactory.Create(v03, new HttpClient(), Options()));
+    }
+
     // ---- shared pieces ----
 
     [Fact]
