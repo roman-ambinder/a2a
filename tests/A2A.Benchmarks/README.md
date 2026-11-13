@@ -45,6 +45,9 @@ a blocking SendMessage.
   by one entry per event.
 - `Appends2000` / `Appends1000`: appends to one artifact through the in-memory store wrapped without `IBatchTaskCommit`,
   so each append is its own commit.
+- `StatusMessages2000Serialized` / `Appends2000Serialized`: the same through a wrapper that also serializes the task with
+  `A2AJson` on each commit, as a store that writes the task JSON per event does. Most of what they allocate is the JSON
+  itself (O(n) bytes per commit); the rest shows whether serializing builds the shared lists.
 
 Each case has a twin with half the events. When a task costs O(1) per event, doubling the events about doubles the
 allocation; an O(n) copy per event makes it grow about 3 to 3.5 times.
