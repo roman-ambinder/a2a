@@ -12,13 +12,14 @@ Who may call is set in one place, on the A2A builder. Each of these applies to e
 - `AddApiKeyAuthentication()`, `AddBearerAuthentication()` or `AddCardAuthentication(...)`: a caller authenticated by a scheme the card declares (see below).
 - Anonymous callers on purpose: `Configure(o => o.AllowAnonymous = true)`, or <xref:A2A.Server.AspNetCore.A2ACallerPolicyExtensions.ConfigureForDevelopment*> while you develop.
 
-`MapA2A` returns a route group, and `.RequireAuthorization(...)` on it works as in any ASP.NET Core app. Authorization on an endpoint or an outer group replaces the builder's policy there. The Agent Card endpoints are mapped outside the group and stay anonymous.
+`MapA2A` returns a route group, and `.RequireAuthorization(...)` on it works as in any ASP.NET Core app, as does `RequireAuthorization(...)` on a route group around it (`app.MapGroup("/api").RequireAuthorization().MapA2A("/a2a")`), however deeply nested. Authorization on an endpoint or an outer group replaces the builder's policy there. The Agent Card endpoints are mapped outside the group and stay anonymous.
 
 If A2A endpoints have no authorization, the app does not start. The check is fail closed:
 
 - Every endpoint whose display name starts with `A2A ` (the Agent Card endpoints are skipped) must carry authorization metadata and no `AllowAnonymous` metadata.
+- The check reads the endpoints as the app serves them, with the metadata of every route group around them. `RequireAuthorization()` on an outer group counts, and `AllowAnonymous()` on an outer group fails the check just as `AllowAnonymous()` on the endpoints does, also next to a policy on the A2A builder: that metadata keeps the builder's policy off the endpoints.
+- It runs once the web host has built its request pipeline, before the server listens, so endpoints mapped in `UseEndpoints` of a `Startup` class are checked too. A host that never builds a pipeline is checked on `ApplicationStarted` instead, and the app stops on failure.
 - `MapA2A` throws if `AddA2AServerAspNetCore()` was not called (`AddA2A` calls it for you), so the check cannot be skipped by mistake.
-- If no endpoint exists yet when the host starts, the check runs again on `ApplicationStarted` and stops the app on failure.
 - <xref:A2A.Server.A2ARequestHandler> also refuses unauthenticated callers on its own, as a backstop.
 
 ## API keys
@@ -270,7 +271,7 @@ Only list a scheme that validates the bearer header, or that runs behind somethi
 
 ## What can go wrong
 
-- **The app does not start with "A2A endpoints have no authorization policy".** Add `RequireAuthorization()`, set a policy in `MapA2A`, or set `AllowAnonymous`.
+- **The app does not start with "A2A endpoints have no authorization policy".** Add `RequireAuthorization()`, set a policy in `MapA2A`, or set `AllowAnonymous`. When the message says an endpoint has `AllowAnonymous()` metadata, remove `AllowAnonymous()` from the A2A endpoints and from the route groups they are mapped in.
 - **Two users see each other's tasks.** Both resolve to the same owner id. Check the claims your scheme issues.
 - **Every call is 401 although the token is valid.** The user has neither a `NameIdentifier` nor a `sub` claim. Use a custom resolver.
 - **Anonymous callers share one rate limit bucket.** Behind a proxy, see [limits](limits-and-rate-limiting.md).

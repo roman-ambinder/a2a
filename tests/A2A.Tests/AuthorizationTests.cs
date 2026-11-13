@@ -258,9 +258,10 @@ public class AuthorizationTests
     }
 
     [Fact]
-    public async Task Startup_style_hosting_without_authorization_is_refused_after_start()
+    public async Task Startup_style_hosting_without_authorization_is_refused_at_start()
     {
-        // UseEndpoints runs inside GenericWebHostService.StartAsync, after the validator started with no endpoints.
+        // UseEndpoints runs inside GenericWebHostService.StartAsync, after the validator started with no endpoints. The check
+        // runs once the pipeline is built, before the server listens.
         using var host = new HostBuilder().ConfigureWebHost(web => web
             .UseTestServer()
             .ConfigureServices(s =>
@@ -279,15 +280,35 @@ public class AuthorizationTests
                 app.UseAuthorization();
                 app.UseEndpoints(e => e.MapA2A("/a2a")); // no RequireAuthorization()
             })).Build();
-        await host.StartAsync();
-        var lifetime = host.Services.GetRequiredService<Microsoft.Extensions.Hosting.IHostApplicationLifetime>();
-        Assert.True(lifetime.ApplicationStopping.IsCancellationRequested);
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => host.StartAsync());
+        Assert.Contains("no authorization policy", ex.Message);
+    }
 
-        // And the backstop alone already rejects anonymous callers.
-        using var req = new HttpRequestMessage(HttpMethod.Get, "/a2a/tasks");
+    [Fact]
+    public async Task Startup_style_hosting_with_authorization_on_a_group_starts()
+    {
+        using var host = new HostBuilder().ConfigureWebHost(web => web
+            .UseTestServer()
+            .ConfigureServices(s =>
+            {
+                s.AddAuthentication(TestAuthHandler.SchemeName)
+                    .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, null);
+                s.AddAuthorization();
+                s.AddRouting();
+                s.AddA2AServer(o => o.AgentCard = TestAgentHost.DefaultCard()).AddAgentExecutor<ScenarioAgent>();
+                s.AddA2AServerAspNetCore();
+            })
+            .Configure(app =>
+            {
+                app.UseRouting();
+                app.UseAuthentication();
+                app.UseAuthorization();
+                app.UseEndpoints(e => e.MapGroup("/api").RequireAuthorization().MapA2A("/a2a"));
+            })).Build();
+        await host.StartAsync();
+        using var req = new HttpRequestMessage(HttpMethod.Get, "/api/a2a/tasks");
         req.Headers.Add("A2A-Version", "1.0");
-        var resp = await host.GetTestClient().SendAsync(req);
-        Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await host.GetTestClient().SendAsync(req)).StatusCode);
         await host.StopAsync();
     }
 
