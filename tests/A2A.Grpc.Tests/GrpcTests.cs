@@ -157,6 +157,82 @@ public class ProtoMapperTests
     }
 
     [Fact]
+    public void A_small_error_is_sent_whole_and_not_marked_truncated()
+    {
+        var status = GrpcErrors.ToStatus(A2AException.TaskNotFound("t9"));
+        var info = status.GetDetail<Google.Rpc.ErrorInfo>()!;
+        Assert.False(info.Metadata.ContainsKey(GrpcErrors.TruncatedKey));
+        Assert.Equal("t9", info.Metadata["taskId"]);
+    }
+
+    [Fact]
+    public void An_error_with_large_metadata_fits_the_trailer_budget_and_keeps_its_code()
+    {
+        var metadata = new Dictionary<string, string> { ["small"] = "kept" };
+        for (var i = 0; i < 20; i++) metadata["big" + i] = new string('x', 1000);
+        var ex = new A2AException(A2AErrorCode.UnsupportedOperation, "nope")
+            { Metadata = metadata, Retryable = true, RetryAfter = TimeSpan.FromSeconds(3) };
+
+        var rpc = GrpcErrors.ToRpcException(ex);
+        var status = rpc.GetRpcStatus()!;
+        Assert.True(status.CalculateSize() <= GrpcErrors.MaxStatusBytes);
+        var info = status.GetDetail<Google.Rpc.ErrorInfo>()!;
+        Assert.Equal("true", info.Metadata[GrpcErrors.TruncatedKey]);
+        Assert.Equal("kept", info.Metadata["small"]); // the largest entries go first
+        Assert.Equal(3, status.GetDetail<Google.Rpc.RetryInfo>()!.RetryDelay.Seconds);
+
+        var back = GrpcErrors.FromRpcException(rpc);
+        Assert.Equal(A2AErrorCode.UnsupportedOperation, back.Code);
+        Assert.True(back.IsRetryable);
+        Assert.Equal(TimeSpan.FromSeconds(3), back.RetryAfter);
+        Assert.Equal("nope", back.Message);
+    }
+
+    [Fact]
+    public void Bad_request_details_are_dropped_from_the_last_before_error_info_metadata()
+    {
+        var violations = Enumerable.Range(0, 200)
+            .Select(i => new KeyValuePair<string, string>("field" + i, new string('d', 40)));
+        var ex = new A2AException(A2AErrorCode.InvalidParams, "bad")
+        {
+            Metadata = new Dictionary<string, string> { ["taskId"] = "t1" },
+            Details = [A2AErrors.BadRequest(violations)]
+        };
+
+        var status = GrpcErrors.ToStatus(ex);
+        Assert.True(status.CalculateSize() <= GrpcErrors.MaxStatusBytes);
+        Assert.Null(status.GetDetail<Google.Rpc.BadRequest>());
+        var info = status.GetDetail<Google.Rpc.ErrorInfo>()!;
+        Assert.Equal("t1", info.Metadata["taskId"]);
+        Assert.Equal("true", info.Metadata[GrpcErrors.TruncatedKey]);
+    }
+
+    [Fact]
+    public void A_long_message_is_cut_on_a_character_boundary()
+    {
+        // 3-byte and 4-byte UTF-8 characters, so a byte cut would split one.
+        var message = string.Concat(Enumerable.Repeat("€😀", 2000));
+        var status = GrpcErrors.ToStatus(new A2AException(A2AErrorCode.Internal, message));
+
+        Assert.True(System.Text.Encoding.UTF8.GetByteCount(status.Message) <= GrpcErrors.MaxMessageBytes);
+        Assert.EndsWith("...", status.Message);
+        Assert.DoesNotContain('�', System.Text.Encoding.UTF8.GetString(System.Text.Encoding.UTF8.GetBytes(status.Message)));
+        Assert.StartsWith("€😀", status.Message);
+        Assert.Equal("true", status.GetDetail<Google.Rpc.ErrorInfo>()!.Metadata[GrpcErrors.TruncatedKey]);
+    }
+
+    [Theory]
+    [InlineData("abc", 10, "abc")]
+    [InlineData("abcdefghij", 6, "abc...")]
+    [InlineData("€€€", 7, "€...")]
+    [InlineData("abcdef", 2, "ab")]
+    [InlineData("abcdef", 0, "")]
+    public void Truncate_cuts_to_the_byte_budget(string value, int max, string expected)
+    {
+        Assert.Equal(expected, GrpcErrors.Truncate(value, max));
+    }
+
+    [Fact]
     public void Rate_limit_error_carries_retry_info_and_retryable_metadata()
     {
         var rpc = GrpcErrors.ToRpcException(A2AException.RateLimited(TimeSpan.FromSeconds(7)));

@@ -502,6 +502,31 @@ public class LimitsTests
         Assert.Equal(id, body.GetProperty("id").GetRawText());
     }
 
+    // A2A#2424: a JSON-RPC request may leave out params. Methods whose parameters are all optional run as with {}.
+    [Theory]
+    [InlineData("""{"jsonrpc":"2.0","id":1,"method":"ListTasks"}""", "ListTasks")]
+    [InlineData("""{"jsonrpc":"2.0","id":1,"method":"ListTasks","params":null}""", "ListTasks")]
+    [InlineData("""{"jsonrpc":"2.0","id":1,"method":"GetExtendedAgentCard"}""", "GetExtendedAgentCard")]
+    public async Task Absent_params_are_read_as_an_empty_object(string json, string method)
+    {
+        await using var host = await TestAgentHost.StartAsync();
+        var req = new HttpRequestMessage(HttpMethod.Post, "/a2a") { Content = new StringContent(json, new UTF8Encoding(false), "application/json") };
+        req.Headers.Add(A2AProtocol.Headers.Version, A2AProtocol.Version);
+        req.Headers.Add("X-Test-User", "alice");
+        var (status, body) = await Send(host, req);
+        Assert.Equal(HttpStatusCode.OK, status);
+        if (method == "ListTasks")
+        {
+            Assert.False(body.TryGetProperty("error", out _), body.GetRawText());
+            Assert.Equal(JsonValueKind.Array, body.GetProperty("result").GetProperty("tasks").ValueKind);
+        }
+        else if (body.TryGetProperty("error", out var error))
+        {
+            // The test host has no extended card: its own error, never a parse or params error.
+            Assert.Equal(-32007, error.GetProperty("code").GetInt32());
+        }
+    }
+
     // HTTP+JSON: malformed and invalid bodies are both InvalidParams (400); the message names the problem.
     public static TheoryData<string, string> RestBodies() => new()
     {

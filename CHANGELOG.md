@@ -100,6 +100,13 @@ One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpl
 
 ### Protocol and bindings
 
+- **gRPC errors fit in an 8 KiB trailer budget** ([A2A#2433](https://github.com/a2aproject/A2A/issues/2433)). gRPC
+  sends error details in trailers, which grpc-java and the gRPC C core cap at 8 KiB; an error over the cap is lost
+  whole. `GrpcErrors.ToStatus` now keeps the status message to 1 KiB of UTF-8 and the whole `google.rpc.Status` to
+  3 KiB. To fit, it drops `BadRequest` details first, then the largest `ErrorInfo` metadata entries, then cuts the
+  message. The `ErrorInfo` reason, `retryable`, `retryAfter` and `RetryInfo` always stay, and
+  `ErrorInfo.metadata.truncated` is `"true"` when something was left out. Before, a custom operation that threw an
+  `A2AException` with large metadata sent it all, about 56 KB in the test. The HTTP bindings are unchanged.
 - Fixes from the review of the compatibility changes (roman-ambinder/a2a#159):
   - **v0.3 HTTP+JSON client.** `ListTasksAsync` returns a next page token when `pageSize` cuts the list, so paging on
     reaches every task. Before, the tasks past the first page were lost.
