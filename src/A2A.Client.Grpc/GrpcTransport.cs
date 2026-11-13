@@ -44,6 +44,14 @@ namespace A2A.Client.Grpc;
 ///         stream is first
 ///         enumerated: a stream that is never read sends nothing.
 ///     </para>
+///     <para>
+///         <see cref="A2AClientOptions.StreamKeepAliveTimeout" /> does not apply: gRPC streams carry no keep-alive
+///         messages. A channel the SDK makes itself (no <see cref="GrpcChannelOptions" /> given) sends HTTP/2 keep-alive
+///         pings instead, after 5 minutes without a frame from the server while a call is open (20 seconds for the
+///         answer), so a silently dropped connection fails its streams with <c>UNAVAILABLE</c> and
+///         <see cref="A2AClient.ObserveTaskAsync" /> reconnects. With your own channel options, set
+///         <c>SocketsHttpHandler.KeepAlivePingDelay</c> on their <see cref="GrpcChannelOptions.HttpHandler" />.
+///     </para>
 /// </remarks>
 #pragma warning disable A2AEXP005 // the live exchange of A2A 1.1
 public sealed class GrpcTransport : IA2ATransport, IA2AExtensionOperationClient, IDisposable, ITransportBinding,
@@ -238,7 +246,7 @@ public sealed class GrpcTransport : IA2ATransport, IA2AExtensionOperationClient,
 
     private static GrpcChannel CreateChannel(Uri address, GrpcChannelOptions? options, out GrpcChannel channel)
     {
-        return channel = GrpcChannel.ForAddress(address, options ?? new GrpcChannelOptions());
+        return channel = GrpcChannel.ForAddress(address, options ?? GrpcDefaults.ChannelOptions());
     }
 
     /// <summary>

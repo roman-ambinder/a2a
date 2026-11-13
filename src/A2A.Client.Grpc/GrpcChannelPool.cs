@@ -38,7 +38,7 @@ internal sealed class GrpcChannelPool
     private readonly TimeProvider _time;
 
     private GrpcChannelPool(GrpcChannelOptions? options)
-        : this(address => GrpcChannel.ForAddress(address, options ?? new GrpcChannelOptions()), c => c.Dispose(),
+        : this(address => GrpcChannel.ForAddress(address, options ?? GrpcDefaults.ChannelOptions()), c => c.Dispose(),
             MaxIdleChannels, IdleTimeout, TimeProvider.System)
     {
     }
