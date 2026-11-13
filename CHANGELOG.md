@@ -162,6 +162,12 @@ One builder, no ordering rules. Design: `docs/superpowers/specs/2026-11-12-simpl
 
 ### Security
 
+- The startup authorization check now checks the A2A endpoints as the app serves them, with the metadata of outer route
+  groups. Before, it read a group's inner endpoints: `app.MapGroup("/g").RequireAuthorization().MapA2A(...)` with no
+  builder policy was refused at startup, and `AllowAnonymous()` on a route group next to a builder policy went unseen
+  (the policy was then skipped, so even a valid API key got 401). That setup now fails at startup with the same message
+  as `AllowAnonymous()` on the endpoints, and analyzer A2A0002 reports it. The check runs from a startup filter, before
+  the server listens.
 - CLI: `a2a` checks the card's endpoints as `A2AClient.ConnectAsync` does. Before, a public Agent Card that named a
   private or link-local interface (for example `http://10.1.2.3:8080/internal`) made the CLI call it and print the reply.
   Such a card now exits 6 with the endpoint policy's message.
