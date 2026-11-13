@@ -100,7 +100,7 @@ Two official suites run against `conformance/dotnet/ConformanceAgent`, on JSON-R
 | TCK | [a2aproject/a2a-tck](https://github.com/a2aproject/a2a-tck) | `70f6f73` (after tag `1.0.0.alpha3`) |
 | ACTS | [a2aproject/a2a-itk](https://github.com/a2aproject/a2a-itk) (`run_acts.py`) | `d53108a` |
 
-The TCK pin is one commit behind its `main`. That commit only moves the TCK to Python 3.15, where `grpcio` has no prebuilt wheels and takes over 30 minutes to compile. The test code is the same. The ITK cross-SDK traversal suite in `a2a-itk` is not run. The interop tests above cover two-way interop with the official Python SDK.
+The TCK pin is one commit behind its `main`. That commit only moves the TCK to Python 3.15, where `grpcio` has no prebuilt wheels and takes over 30 minutes to compile. The test code is the same. The ITK cross-SDK traversal suite in `a2a-itk` runs from the repository's `itk/` folder (`itk/run_itk.sh`, Docker needed): it sends one nested instruction through agents of the Python, Go, TypeScript, Java, Rust and official .NET SDKs, v1.0 and v0.3, on all three bindings. It is a CI job, not yet part of `all-green`. The interop tests above cover two-way interop with the official Python SDK.
 
 ### Results
 

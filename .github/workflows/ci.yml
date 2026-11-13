@@ -421,6 +421,18 @@ jobs:
           path: ${{ runner.temp }}/sample-logs
           if-no-files-found: warn
 
+  itk:
+    name: ITK cross-SDK traversal (a2a-itk)
+    # Not in all-green yet: the first runs decide which combinations go into a2a-itk's known_failures.yaml.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      # a2a-itk revision pinned in itk/run_itk.sh. The agent is built inside the ITK image, which has its own .NET SDK.
+      - name: Run the ITK PR set (JSON-RPC, HTTP+JSON, gRPC)
+        run: itk/run_itk.sh
+
   all-green:
     name: all-green
     # The single check to require in branch protection. `always()` matters: a skipped job counts as passing a required

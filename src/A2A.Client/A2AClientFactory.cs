@@ -124,7 +124,7 @@ public static class A2AClientFactory
     private static IA2ATransport CreateTransport(AgentInterface selected, HttpClient httpClient,
         A2AClientOptions options)
     {
-        return FactoryFor(options, selected.ProtocolBinding) is { } factory
+        return FactoryFor(options, selected) is { } factory
             ? factory.Create(selected, httpClient, options)
             : selected.ProtocolBinding switch
             {
@@ -518,9 +518,10 @@ public static class A2AClientFactory
         {
             if (!options.SupportedBindings.Contains(itf.ProtocolBinding)) continue;
             if (!Speaks(options, itf.ProtocolVersion)) continue;
-            if (FactoryFor(options, itf.ProtocolBinding) is { } factory)
+            if (HasFactoryFor(options, itf.ProtocolBinding))
             {
-                if (factory.CanCreate(itf)) yield return itf;
+                // A registered factory replaces the built-in transport, so an interface none of them can serve is skipped.
+                if (FactoryFor(options, itf) is not null) yield return itf;
                 continue;
             }
 
@@ -530,10 +531,20 @@ public static class A2AClientFactory
         }
     }
 
-    private static IA2ATransportFactory? FactoryFor(A2AClientOptions options, string binding)
+    private static bool HasFactoryFor(A2AClientOptions options, string binding)
+    {
+        return options.TransportFactories.Any(f => string.Equals(f.ProtocolBinding, binding, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    ///     The last registered factory for the interface's binding that can create it. Not just the last one for the
+    ///     binding: <c>UseGrpc().UseGrpcV03()</c> registers a v1.0 and a v0.3 gRPC factory, and the v0.3 one refuses a v1.0
+    ///     interface, which the v1.0 one serves.
+    /// </summary>
+    private static IA2ATransportFactory? FactoryFor(A2AClientOptions options, AgentInterface itf)
     {
         return options.TransportFactories.LastOrDefault(f =>
-            string.Equals(f.ProtocolBinding, binding, StringComparison.Ordinal));
+            string.Equals(f.ProtocolBinding, itf.ProtocolBinding, StringComparison.Ordinal) && f.CanCreate(itf));
     }
 
     private static string Major(string? version)

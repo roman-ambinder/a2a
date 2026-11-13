@@ -10,7 +10,7 @@ Runs the official A2A conformance suites against this SDK, on JSON-RPC, HTTP+JSO
 
 The TCK pin is one commit behind its `main`. That commit only moves the TCK to Python 3.15, where `grpcio` has no prebuilt wheels and takes over 30 minutes to compile. The test code is the same.
 
-The ITK cross-SDK traversal suite in `a2a-itk` is not run. `interop/` covers two-way interop with the official Python SDK.
+The ITK cross-SDK traversal suite in `a2a-itk` runs from [`itk/`](../itk/README.md), against every SDK in ITK's matrix. `interop/` covers two-way interop with the official Python SDK.
 
 ## Run
 

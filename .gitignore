@@ -14,3 +14,8 @@ docs/site/api/*
 !docs/site/api/index.md
 StrykerOutput/
 coverage/
+itk/a2a-itk/
+itk/publish/
+itk/logs/
+itk/run_request.json
+itk/raw_results.json

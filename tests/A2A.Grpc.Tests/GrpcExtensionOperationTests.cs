@@ -251,6 +251,27 @@ public class GrpcExtensionOperationTests
         Assert.Equal(StatusCode.ResourceExhausted, ex.StatusCode);
     }
 
+    [Fact]
+    public async Task A_large_operation_error_arrives_within_an_8_KiB_trailer_budget_with_its_code()
+    {
+        // A2A#2433: grpc-java and the gRPC C core cap trailers at 8 KiB and drop an error over it whole.
+        var metadata = Enumerable.Range(0, 50).ToDictionary(i => "k" + i, _ => new string('v', 500));
+        await using var host = await StartAsync(allow: true, more: b => b.AddExtensionOperation("x.fail", "urn:test:x-fail",
+            (_, _, _) => throw new A2AException(A2AErrorCode.UnsupportedOperation, new string('m', 5000)) { Metadata = metadata },
+            allow: true));
+
+        var meta = Version(withExtension: false, ("a2a-extensions", "urn:test:x-fail"));
+        var ex = await Assert.ThrowsAsync<RpcException>(() =>
+            host.RawExtensions().InvokeExtensionOperationAsync(Request("x.fail", "{}"), meta).ResponseAsync);
+
+        var trailerBytes = ex.Trailers.Sum(t => t.Key.Length + (t.IsBinary ? (t.ValueBytes.Length + 2) / 3 * 4 : t.Value.Length))
+                           + ex.Status.Detail.Length * 3; // grpc-message, percent-encoded at worst
+        Assert.True(trailerBytes < 8 * 1024, $"trailers are {trailerBytes} bytes");
+        var error = GrpcErrors.FromRpcException(ex);
+        Assert.Equal(A2AErrorCode.UnsupportedOperation, error.Code);
+        Assert.Equal("true", error.Metadata![GrpcErrors.TruncatedKey]);
+    }
+
     private sealed class RecordingFilter(ConcurrentQueue<A2AOperationDescriptor> seen) : IA2AOperationFilter
     {
         public ValueTask<object?> InvokeAsync(A2AOperationContext context, object request, A2AOperationDelegate next, CancellationToken cancellationToken)
