@@ -57,7 +57,7 @@ gRPC needs HTTP/2. Over TLS, Kestrel can serve HTTP/1.1 and HTTP/2 on one port. 
 
 [!code-csharp[](../../../samples/Snippets/Bindings.cs#Http2)]
 
-In the card, a gRPC interface URL is the server address, with no path. If the card lists no interfaces, the URL is completed from <xref:A2A.Server.AspNetCore.A2AHttpOptions.PublicBaseUrl> (or the first listen address). Over TLS it is written as `host:port`; a plain-text address keeps `http://host:port`.
+In the card, a gRPC interface URL is the server address, with no path. If the card lists no interfaces, the URL is completed from <xref:A2A.Server.AspNetCore.A2AHttpOptions.PublicBaseUrl> (or the first listen address). Over TLS it is written as `host:port`; a plain-text address keeps `http://host:port`. A client reads a bare `host:port` as TLS. To call an agent of another SDK that lists cleartext gRPC in that form, use `UseGrpc(channelOptions, useTlsForSchemeLessAddresses: false)`; see [Spec decisions](spec-decisions.md#protocol-choices).
 
 ## How the client picks
 

@@ -254,9 +254,20 @@ public sealed class GrpcTransport : IA2ATransport, IA2AExtensionOperationClient,
     /// </summary>
     public static Uri ParseAddress(string url)
     {
+        return ParseAddress(url, true);
+    }
+
+    /// <summary>
+    ///     Normalizes an Agent Card gRPC URL. An <c>http://</c> or <c>https://</c> URL is used as it is. A "host:port" without
+    ///     a scheme is read as HTTPS, or as cleartext HTTP/2 when <paramref name="useTlsForSchemeLessAddresses" /> is false:
+    ///     some SDKs list a cleartext gRPC interface in that form.
+    /// </summary>
+    public static Uri ParseAddress(string url, bool useTlsForSchemeLessAddresses)
+    {
+        ArgumentNullException.ThrowIfNull(url);
         if (Uri.TryCreate(url, UriKind.Absolute, out var u) &&
             (u.Scheme == Uri.UriSchemeHttp || u.Scheme == Uri.UriSchemeHttps)) return u;
-        return new Uri("https://" + url.TrimStart('/'));
+        return new Uri((useTlsForSchemeLessAddresses ? "https://" : "http://") + url.TrimStart('/'));
     }
 
     private static JsonElement ParseExtensionResult(ExtensionOperationResponse response)
@@ -539,15 +550,33 @@ public sealed class GrpcTransport : IA2ATransport, IA2AExtensionOperationClient,
 
 /// <summary>
 ///     Lets <see cref="A2AClientFactory" /> select gRPC interfaces. Add it with
-///     <see cref="A2AGrpcClientOptionsExtensions.UseGrpc" />. Transports to the same address with the same channel options
+///     <see cref="A2AGrpcClientOptionsExtensions.UseGrpc(A2AClientOptions, GrpcChannelOptions, bool)" />. Transports to the same address with the same channel options
 ///     share one
 ///     <see cref="GrpcChannel" /> (one HTTP/2 connection pool), which stays open for the life of those options.
 /// </summary>
-public sealed class GrpcTransportFactory(GrpcChannelOptions? channelOptions = null) : IA2ATransportFactory
+public sealed class GrpcTransportFactory : IA2ATransportFactory
 {
     // Channels come from a pool shared per address and channel options (GrpcChannelPool): a call leases its channel while it
     // runs, and a channel no call uses is disposed after an idle timeout or past an idle limit, so a host that calls many
     // agents does not keep a channel per agent for the life of the process.
+
+    private readonly GrpcChannelOptions? channelOptions;
+    private readonly bool useTlsForSchemeLessAddresses;
+
+    /// <summary>Creates the factory. A card's "host:port" gRPC address is read as HTTPS.</summary>
+    public GrpcTransportFactory(GrpcChannelOptions? channelOptions) : this(channelOptions, true)
+    {
+    }
+
+    /// <summary>
+    ///     Creates the factory. With <paramref name="useTlsForSchemeLessAddresses" /> false, a card's "host:port" gRPC
+    ///     address is called over cleartext HTTP/2 (see <see cref="GrpcTransport.ParseAddress(string, bool)" />).
+    /// </summary>
+    public GrpcTransportFactory(GrpcChannelOptions? channelOptions = null, bool useTlsForSchemeLessAddresses = true)
+    {
+        this.channelOptions = channelOptions;
+        this.useTlsForSchemeLessAddresses = useTlsForSchemeLessAddresses;
+    }
 
     /// <inheritdoc />
     public string ProtocolBinding => ProtocolBindings.Grpc;
@@ -559,7 +588,7 @@ public sealed class GrpcTransportFactory(GrpcChannelOptions? channelOptions = nu
         if (string.IsNullOrWhiteSpace(agentInterface.Url)) return false;
         try
         {
-            _ = GrpcTransport.ParseAddress(agentInterface.Url);
+            _ = GrpcTransport.ParseAddress(agentInterface.Url, useTlsForSchemeLessAddresses);
             return true;
         }
         catch (UriFormatException)
@@ -576,7 +605,8 @@ public sealed class GrpcTransportFactory(GrpcChannelOptions? channelOptions = nu
     public IA2ATransport Create(AgentInterface agentInterface, HttpClient httpClient, A2AClientOptions options)
     {
         return new GrpcTransport(
-            GrpcChannelPool.For(channelOptions).CallInvoker(GrpcTransport.ParseAddress(agentInterface.Url)), options);
+            GrpcChannelPool.For(channelOptions)
+                .CallInvoker(GrpcTransport.ParseAddress(agentInterface.Url, useTlsForSchemeLessAddresses)), options);
     }
 }
 
@@ -588,10 +618,23 @@ public static class A2AGrpcClientOptionsExtensions
     ///     <see cref="A2AClientFactory" /> may select a gRPC interface. The card's interface order still decides (spec
     ///     §8.3.2).
     /// </summary>
-    public static A2AClientOptions UseGrpc(this A2AClientOptions options, GrpcChannelOptions? channelOptions = null)
+    public static A2AClientOptions UseGrpc(this A2AClientOptions options, GrpcChannelOptions? channelOptions)
+    {
+        return UseGrpc(options, channelOptions, true);
+    }
+
+    /// <summary>
+    ///     Adds <see cref="GrpcTransportFactory" /> and GRPC to <see cref="A2AClientOptions.SupportedBindings" />. With
+    ///     <paramref name="useTlsForSchemeLessAddresses" /> false, a card's "host:port" gRPC address (no scheme) is called over
+    ///     cleartext HTTP/2 instead of HTTPS. Some SDKs list a cleartext gRPC interface in that form. Turn it off only for
+    ///     agents you know serve cleartext gRPC, such as a local test cluster: the call, and any credentials on it, are then
+    ///     not encrypted. An <c>https://</c> or <c>http://</c> address is used as it is either way.
+    /// </summary>
+    public static A2AClientOptions UseGrpc(this A2AClientOptions options, GrpcChannelOptions? channelOptions = null,
+        bool useTlsForSchemeLessAddresses = true)
     {
         ArgumentNullException.ThrowIfNull(options);
-        options.TransportFactories.Add(new GrpcTransportFactory(channelOptions));
+        options.TransportFactories.Add(new GrpcTransportFactory(channelOptions, useTlsForSchemeLessAddresses));
         if (!options.SupportedBindings.Contains(ProtocolBindings.Grpc))
             options.SupportedBindings.Add(ProtocolBindings.Grpc);
         return options;
@@ -606,7 +649,7 @@ public static class A2AGrpcClientFactory
     /// <summary>
     ///     Builds a client for the first interface in the card's order whose binding is GRPC and whose major version matches.
     ///     Throws UnsupportedOperation if the card declares no usable gRPC interface. To let the card choose among all
-    ///     bindings, use <see cref="A2AClientFactory" /> with <see cref="A2AGrpcClientOptionsExtensions.UseGrpc" />.
+    ///     bindings, use <see cref="A2AClientFactory" /> with <see cref="A2AGrpcClientOptionsExtensions.UseGrpc(A2AClientOptions, GrpcChannelOptions, bool)" />.
     /// </summary>
     public static A2AClient Create(AgentCard card, A2AClientOptions? options = null,
         GrpcChannelOptions? channelOptions = null)
