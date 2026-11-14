@@ -14,6 +14,7 @@ A .NET SDK for the [Agent2Agent (A2A) protocol](https://a2a-protocol.org/latest/
 - [Install](#install)
 - [Host an agent](#host-an-agent)
 - [Call an agent](#call-an-agent)
+- [Compared with the official SDKs](#compared-with-the-official-sdks)
 - [Guides](#guides)
 - [Samples](#samples)
 - [Build and test](#build-and-test)
@@ -111,6 +112,31 @@ while (reply.NeedsInput) reply = await chat.SendAsync(Console.ReadLine() ?? "");
 ```
 
 `ConnectAsync` reads the agent's card, picks a binding the card offers, and uses an HTTP handler that keeps no cookies and follows no redirects. It retries safe failures. Credentials, card trust and client options go in its options: `ConnectAsync(url, o => o.Credentials.Add(new ApiKeyCredentialProvider(key)))`. For credentials (OAuth2, API keys, mutual TLS, Azure, AWS), see [Client credentials](docs/site/guides/client-credentials.md). For DI and named clients, see [samples/EchoClient](samples/EchoClient/Program.cs).
+
+## Compared with the official SDKs
+
+What each official [a2aproject](https://github.com/a2aproject) SDK ships in its own repository, read from source on 2026-11-14. **Yes**: shipped. **Partial**: part of it, or only an interface, an example or an opt-in. **No**: not found.
+
+| Feature | This SDK | [Python](https://github.com/a2aproject/a2a-python) | [JS](https://github.com/a2aproject/a2a-js) | [Go](https://github.com/a2aproject/a2a-go) | [Java](https://github.com/a2aproject/a2a-java) | [.NET](https://github.com/a2aproject/a2a-dotnet) | [Rust](https://github.com/a2aproject/a2a-rs) |
+|---|---|---|---|---|---|---|---|
+| JSON-RPC, HTTP+JSON and gRPC, server and client | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| Durable task store | Yes (Postgres) | Yes (Postgres, MySQL, SQLite) | Yes (Postgres, MySQL, SQLite) | Partial (MySQL in an example) | Yes (JPA) | No | No |
+| Several server instances | Yes (Redis) | Yes (shared database) | Partial (interface) | Partial (experimental) | Yes (Kafka) | No | No |
+| Anonymous callers refused by default | Yes | No | No | No | Yes | No | No |
+| Tasks scoped to their owner | Yes | Yes | Yes | Partial | Partial (opt-in) | No | No |
+| Request limits and rate limiting | Yes | Partial | No | Partial | Partial | Partial | Partial |
+| Webhook SSRF guard on by default | Yes | Partial (off by default) | No | Yes | Yes | Yes | Yes |
+| Push retry or durable delivery | Yes | No | No | No | No | Partial (retry, not durable) | No |
+| Stream resume from an event id | Yes | Partial (resubscribe) | Partial (resubscribe) | Partial (resubscribe) | Partial (resubscribe) | Partial (resubscribe) | Partial (resubscribe) |
+| Agent Card sign and verify | Yes | Yes | Yes | Yes | Partial (model only) | Partial (model only) | Partial (model only) |
+| `messageId` dedupe | Yes | No | No | No | No | No | No |
+| v0.3 compatibility | Yes | Yes | Yes | Yes | Yes | Yes | Partial (client) |
+| OpenTelemetry | Yes | Partial (tracing) | No | No | Yes | Yes | No |
+| Task retention | Yes | No | No | No | Partial | No | No |
+| Artifacts in S3 or Azure Blob | Yes | No | No | No | No | No | No |
+| Client retries | Yes | No (timeouts) | Partial (auth only) | No (timeouts) | Partial | No | No |
+
+Compared at: Python `09c9347` (1.3.0), JS `41335e6` (1.3.0), Go `5216340` (2.8.0), Java `897835ef` (1.5.2 snapshot), .NET `8d3a083` (1.0.0-preview5), Rust `700a6a2` (`a2a-server-lf` 0.5.3). "No" means the feature was searched for and not found, so a feature under another name may be missed. The other SDKs move fast, so check their repositories for the current state; corrections are welcome. How this SDK is tested against them is in [Interop and conformance](docs/site/guides/interop-and-conformance.md).
 
 ## Guides
 
